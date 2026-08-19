@@ -1,0 +1,37 @@
+{
+  "name": "dsh-code-panel",
+  "version": "0.1.0",
+  "description": "DSH 右侧代码面板：浏览工作区代码与 Agent 代码片段，选中代码即可作为引用直接发给 Agent 解释",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "code",
+    "code-panel",
+    "代码面板"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}
