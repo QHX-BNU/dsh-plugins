@@ -1,0 +1,7 @@
+# dsh-retract-prompt —— profile 启用配置示例
+# 把下面内容追加到 profile 目录（如 C:\Users\<你>\.dsh\profiles\desktop）的 cordis.patch.yml
+- insert:
+    - id: dsh-retract-prompt
+      name: 'dsh-retract-prompt'
+      config:
+        autoStop: true
