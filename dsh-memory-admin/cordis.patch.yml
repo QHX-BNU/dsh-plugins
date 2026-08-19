@@ -1,0 +1,11 @@
+# dsh-memory-admin —— profile 启用配置示例
+# 把下面内容追加到 profile 目录（如 C:\Users\<你>\.dsh\profiles\desktop）的 cordis.patch.yml
+- insert:
+    - id: dsh-memory-admin
+      name: 'dsh-memory-admin'
+      config:
+        dbPath: 'data/memory-admin.db'   # 建议改成绝对路径
+        autoRemember: true
+        recallEnabled: true
+        recallTopK: 5
+        injectContext: true
