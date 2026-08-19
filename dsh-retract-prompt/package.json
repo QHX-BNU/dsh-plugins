@@ -1,0 +1,38 @@
+{
+  "name": "dsh-retract-prompt",
+  "version": "0.1.0",
+  "description": "DSH 撤回指令插件：停止当前运行并把最后一条用户指令放回编辑器重新编辑，修改后再发送，避免因错误输入指令导致 Agent 继续误执行",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "retract",
+    "prompt",
+    "stop",
+    "撤回",
+    "重新编辑"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}
