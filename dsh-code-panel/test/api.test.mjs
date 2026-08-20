@@ -139,11 +139,12 @@ console.log('== 路由注册 ==');
     '/code-panel/api/image',
     '/code-panel/api/list',
     '/code-panel/api/read',
+    '/code-panel/api/search',
     '/code-panel/api/snippets',
     '/code-panel/api/snippets/image',
     '/code-panel/api/snippets/read',
   ].sort();
-  assert(JSON.stringify(paths) === JSON.stringify(expected), `注册 6 条路由（${paths.join(', ')}）`);
+  assert(JSON.stringify(paths) === JSON.stringify(expected), `注册 7 条路由（${paths.join(', ')}）`);
 }
 
 console.log('== 列表 ==');
@@ -209,6 +210,45 @@ console.log('== 越界防护 ==');
     const subLink = await call(route('/code-panel/api/list'), '/code-panel/api/list?' + qs({ root: wsRoot, rel: 'sub-link' }));
     assert(subLink.status === 400 && subLink.body.error.includes('越界'), '目录符号链接指向工作区外被拦截');
   }
+}
+
+console.log('== 搜索 ==');
+{
+  // 无关键词：递归返回全部文件（目录不返回），excludeDirs / 符号链接同样生效
+  const all = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot }));
+  assert(all.status === 200 && all.body.ok === true, '无关键词搜索成功');
+  assert(all.body.files.length === 10, `返回全部 10 个文件（${all.body.files.length}）`);
+  assert(all.body.files.every((f) => f.dir === false), '搜索结果不含目录');
+  assert(!all.body.files.some((f) => f.rel.includes('node_modules')), 'excludeDirs 生效（node_modules 被忽略）');
+  if (symlinkOk) {
+    assert(!all.body.files.some((f) => f.rel === 'leak.txt'), '符号链接不进入搜索结果');
+  }
+  const sub = all.body.files.find((f) => f.rel === 'sub/inner.md');
+  assert(sub && sub.size > 0, '子目录文件带相对路径与 size');
+
+  // 关键词：按文件名/路径子串匹配（大小写不敏感）
+  const hit = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, query: 'HELLO' }));
+  assert(hit.body.files.length === 1 && hit.body.files[0].name === 'hello.py', '大小写不敏感子串匹配');
+  const deep = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, query: 'inner' }));
+  assert(deep.body.files.length === 1 && deep.body.files[0].rel === 'sub/inner.md', '按相对路径匹配子目录文件');
+  const img = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, query: 'pic' }));
+  assert(img.body.files.some((f) => f.image === true), '图片文件带 image 标记');
+
+  // 前缀命中优先
+  const prefix = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, query: 'in' }));
+  assert(prefix.body.files.length > 0 && prefix.body.files[0].name.startsWith('in'), '前缀命中排在最前');
+
+  // limit 生效；无匹配返回空
+  const limited = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, limit: '3' }));
+  assert(limited.body.files.length === 3, `limit 生效（${limited.body.files.length}）`);
+  const none = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: wsRoot, query: 'zzzz-not-exist' }));
+  assert(none.body.files.length === 0, '无匹配返回空数组');
+
+  // 越界与非法 root
+  const relRoot = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: 'relative-dir' }));
+  assert(relRoot.status === 400 && relRoot.body.error.includes('绝对路径'), '相对 root 被拒绝');
+  const missing = await call(route('/code-panel/api/search'), '/code-panel/api/search?' + qs({ root: join(dir, 'nope') }));
+  assert(missing.body.ok === false, '不存在的 root 返回错误');
 }
 
 console.log('== 图片预览 ==');

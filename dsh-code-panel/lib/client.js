@@ -5,7 +5,9 @@
 //  - 「我的代码」：显示 Agent 代码片段目录（data/code-panel/snippets/）下的文件；
 //  - 在代码区选中文本（或未选中则整文件）后，「选到输入框」把代码放进会话的
 //    主输入框（自动插入：选中即入框），由用户补充说明后自行发送；
-//  - 会话标题行右上角（Session Log 旁）的「代码面板」按钮开关本面板。
+//  - 会话标题行右上角（Session Log 旁）的「代码面板」按钮开关本面板；
+//  - 监听 window 事件「dsh-code-panel:open-file」（其他插件 @ 文件选择触发）：
+//    打开面板并把对应文件定位加载到内容区；「dsh-code-panel:probe」用于能力探测。
 // 注意：React 19 的 jsx(type, props) 中 children 必须放进 props 对象。
 window.__ModuleLoader__.load({
   id: "dsh-code-panel",
@@ -38,6 +40,52 @@ window.__ModuleLoader__.load({
       subscribe(fn) {
         panelState.listeners.add(fn);
         return () => panelState.listeners.delete(fn);
+      },
+    };
+
+    /**
+     * @菜单"打开文件"请求存储（跨 details 条目与面板挂载状态共享）：
+     * 其他插件（如 dsh-skill-manager 的 @ 文件选择）通过
+     * window "dsh-code-panel:open-file" 事件发起请求；事件监听器把请求
+     * 写入这里并打开面板。CodePanel 挂载时订阅：已挂载则同步处理，
+     * 未挂载（面板尚未打开）则在挂载后立即投递未消费的请求。
+     * 每个请求带自增序号，订阅方按序号去重，避免重复打开。
+     */
+    const openRequests = {
+      seq: 0,
+      current: null,
+      listeners: new Set(),
+      request(detail) {
+        const req = {
+          root: String(detail.root || ""),
+          rel: String(detail.rel || ""),
+          name: String(detail.name || ""),
+          seq: ++openRequests.seq,
+        };
+        openRequests.current = req;
+        const listeners = [...openRequests.listeners];
+        // 已有订阅者（面板已挂载）：派发即消费；否则保留为待投递请求
+        if (listeners.length > 0) openRequests.current = null;
+        for (const fn of listeners) {
+          try {
+            fn(req);
+          } catch (err) {
+            console.error("[dsh-code-panel] open-file listener failed:", err);
+          }
+        }
+      },
+      subscribe(fn) {
+        openRequests.listeners.add(fn);
+        const pending = openRequests.current;
+        if (pending !== null) {
+          openRequests.current = null; // 挂载时投递并消费，避免陈旧请求二次触发
+          try {
+            fn(pending);
+          } catch (err) {
+            console.error("[dsh-code-panel] open-file listener failed:", err);
+          }
+        }
+        return () => openRequests.listeners.delete(fn);
       },
     };
 
@@ -638,6 +686,53 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         }
       }, [safeSet]);
 
+      // @ 菜单"打开文件"：cwd 的实时引用（异步加载过程中校验会话是否切换）
+      const cwdRef = useRef(cwd);
+      useEffect(() => { cwdRef.current = cwd; }, [cwd]);
+
+      /** 按 @ 菜单请求打开文件：展开祖先目录链 → 选中并加载文件内容。 */
+      const openFileAt = useCallback(async (root, rel, name) => {
+        if (!root || !rel || !name) return;
+        const norm = (p) => String(p || "").replace(/[/\\]+$/, "").toLowerCase();
+        const expectRoot = norm(root);
+        setTab("workspace");
+        safeSet(() => setSelInfo(null));
+        // 逐级加载祖先目录（懒加载文件树需要各级目录都有条目才能渲染）
+        const parts = rel.split("/").filter(Boolean);
+        const dirs = [""];
+        let acc = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc = acc ? acc + "/" + parts[i] : parts[i];
+          dirs.push(acc);
+        }
+        for (const d of dirs) {
+          if (!mountedRef.current || norm(cwdRef.current) !== expectRoot) return; // 会话已切换则放弃
+          safeSet(() => setTree((prev) => ({
+            ...prev,
+            [d]: { ...(prev[d] || { expanded: true, loaded: false, entries: [] }), expanded: true },
+          })));
+          try {
+            await loadDir(root, d);
+          } catch (err) {
+            // 单个目录加载失败（权限/删除等）不阻断后续步骤
+          }
+        }
+        if (!mountedRef.current || norm(cwdRef.current) !== expectRoot) return;
+        onFileClick(root, rel, name);
+      }, [loadDir, onFileClick, safeSet]);
+
+      // 订阅 @ 菜单打开请求：序号去重；cwd 与请求 root 不一致（其他工作区）时忽略
+      const lastOpenSeqRef = useRef(0);
+      useEffect(() => openRequests.subscribe((req) => {
+        if (!req || req.seq === lastOpenSeqRef.current) return;
+        lastOpenSeqRef.current = req.seq;
+        const cur = cwdRef.current;
+        if (!cur) return;
+        const norm = (p) => String(p || "").replace(/[/\\]+$/, "").toLowerCase();
+        if (norm(cur) !== norm(req.root)) return;
+        void openFileAt(req.root, req.rel, req.name);
+      }), [openFileAt]);
+
       const loadSnippets = useCallback(async () => {
         try {
           const data = await apiFetch("/code-panel/api/snippets");
@@ -1050,6 +1145,33 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
 
     function apply(ctx) {
       ensureCss();
+
+      // @ 菜单"打开文件"事件监听（dsh-skill-manager 等插件触发）：
+      //   dsh-code-panel:open-file  {root, rel, name, handled} 打开面板并加载文件
+      //   dsh-code-panel:probe      {available}                能力探测（同步应答）
+      ctx.effect(() => {
+        const onOpenFile = (e) => {
+          const d = e && e.detail;
+          if (!d || !d.root || !d.rel || !d.name) return;
+          d.handled = true;
+          openRequests.request({ root: d.root, rel: d.rel, name: d.name });
+          panelState.set(true);
+          try {
+            ctx.layout.openDetails();
+          } catch (err) {
+            console.error("[dsh-code-panel] openDetails failed:", err);
+          }
+        };
+        const onProbe = (e) => {
+          if (e && e.detail) e.detail.available = true;
+        };
+        window.addEventListener("dsh-code-panel:open-file", onOpenFile);
+        window.addEventListener("dsh-code-panel:probe", onProbe);
+        return () => {
+          window.removeEventListener("dsh-code-panel:open-file", onOpenFile);
+          window.removeEventListener("dsh-code-panel:probe", onProbe);
+        };
+      }, "dsh-code-panel: open-file 监听");
 
       // 右侧 details 栏：以更低优先级接管（shadow 默认的工具调用详情面板）
       ctx.slots.inject("details", () => ctx.slots.register({

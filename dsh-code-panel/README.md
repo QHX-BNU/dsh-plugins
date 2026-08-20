@@ -8,7 +8,13 @@
   Agent（AI）在对话中写好的代码保存到该目录即可出现在面板中；图片片段同样可预览；
 - **选中即引用**：在代码区选中文本（或未选中则整文件），点「解释这段代码」，
   代码会作为**用户引用**直接发给 Agent 解释；也可「插入输入框」先编辑再发送，
-  或「复制」「编辑器打开」（利用系统关联，已安装 VSCode 时会在 VSCode 中打开）。
+  或「复制」「编辑器打开」（利用系统关联，已安装 VSCode 时会在 VSCode 中打开）；
+- **@ 打开文件**：监听 window 事件 `dsh-code-panel:open-file`（`{root, rel, name}`）——
+  其他插件（如 `dsh-skill-manager` 的 @ 文件选择）触发时自动打开面板并把该文件
+  定位加载到内容区；`dsh-code-panel:probe` 事件用于能力探测（同步应答 `available`）；
+- **文件搜索 API**：`GET /code-panel/api/search?root=<cwd>&query=<关键词>&limit=<数量>`
+  递归搜索工作区文件（受 `excludeDirs` / 符号链接跳过 / 深度与访问量上限约束），
+  供 @ 输入菜单等场景使用。
 
 ## 安装
 

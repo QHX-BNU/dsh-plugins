@@ -7,6 +7,9 @@
  * 读接口：
  *   GET /code-panel/api/list?root=<工作区绝对路径>&rel=<相对目录，可空>
  *        → { ok, root, rel, entries: [{ name, rel, dir, size, image }] }
+ *   GET /code-panel/api/search?root=<工作区绝对路径>&query=<关键词，可空>&limit=<数量>
+ *        → { ok, root, query, limit, files: [{ name, rel, dir, size, image }] }
+ *      （递归遍历工作区，按文件名/相对路径子串匹配；@ 输入菜单用）
  *   GET /code-panel/api/read?root=<工作区绝对路径>&rel=<文件相对路径>
  *        → { ok, name, rel, lang, size, content }（二进制/过大返回 ok:false）
  *   GET /code-panel/api/image?root=<工作区绝对路径>&rel=<图片相对路径>
@@ -316,6 +319,85 @@ export function installCodePanelApi(ctx, options) {
       });
     } catch (err) {
       sendJson(res, 400, { ok: false, error: err.message });
+    }
+  });
+
+  // 搜索工作区文件（@ 输入菜单用）：递归遍历，按文件名/相对路径子串匹配，
+  // 受 excludeDirs / 符号链接跳过 / 深度与访问量上限约束；前缀命中优先。
+  route('/code-panel/api/search', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const { rootAbs } = resolveInside(url.searchParams.get('root') ?? '', '');
+      const stat = await fsp.stat(rootAbs);
+      if (!stat.isDirectory()) {
+        sendJson(res, 400, { ok: false, error: '目标不是目录' });
+        return;
+      }
+      // 根目录本身不允许是逃逸符号链接（与 /list 一致）
+      try {
+        await assertRealInside(rootAbs, rootAbs);
+      } catch (err) {
+        sendJson(res, 400, { ok: false, error: err.message });
+        return;
+      }
+      const query = String(url.searchParams.get('query') || '').trim().toLowerCase();
+      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '30', 10) || 30, 100));
+      const hits = [];
+      let visited = 0;
+      const MAX_VISITED = 50000;
+      const MAX_DEPTH = 16;
+      const walk = async (dirAbs, rel, depth) => {
+        if (depth > MAX_DEPTH || visited > MAX_VISITED || hits.length >= limit) return;
+        let entries;
+        try {
+          entries = await fsp.readdir(dirAbs, { withFileTypes: true });
+        } catch {
+          return; // 目录读取失败（权限等）跳过
+        }
+        // 目录在前、文件在后，各自按名称（不区分大小写）排序
+        entries.sort((a, b) => {
+          if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        });
+        for (const entry of entries) {
+          if (++visited > MAX_VISITED || hits.length >= limit) return;
+          // 符号链接一律不展示：链接目标可能在工作区之外
+          if (entry.isSymbolicLink()) continue;
+          if (entry.isDirectory()) {
+            if (excludeDirs.has(entry.name.toLowerCase())) continue;
+            await walk(
+              path.join(dirAbs, entry.name),
+              rel ? `${rel}/${entry.name}` : entry.name,
+              depth + 1,
+            );
+            if (hits.length >= limit) return;
+            continue;
+          }
+          const name = entry.name;
+          const entryRel = rel ? `${rel}/${name}` : name;
+          if (query && !entryRel.toLowerCase().includes(query) && !name.toLowerCase().includes(query)) continue;
+          let size = 0;
+          try {
+            size = (await fsp.stat(path.join(dirAbs, name))).size;
+          } catch {
+            /* 单个文件 stat 失败不影响搜索 */
+          }
+          hits.push({ name, rel: entryRel, dir: false, size, image: IMAGE_EXTS.has(extensionOf(name)) });
+        }
+      };
+      await walk(rootAbs, '', 0);
+      // 前缀命中（名称以 query 开头）优先，其余按相对路径排序
+      if (query) {
+        hits.sort((a, b) => {
+          const ap = a.name.toLowerCase().startsWith(query) ? 0 : 1;
+          const bp = b.name.toLowerCase().startsWith(query) ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          return a.rel.localeCompare(b.rel, undefined, { sensitivity: 'base' });
+        });
+      }
+      sendJson(res, 200, { ok: true, root: rootAbs, query, limit, files: hits });
+    } catch (err) {
+      sendJson(res, 400, { ok: false, error: err && err.message ? err.message : String(err) });
     }
   });
 

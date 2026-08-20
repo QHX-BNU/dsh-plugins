@@ -2,8 +2,15 @@
 // 1) 在侧边栏底部注册"Skill 管理"入口（与"定时任务/插件市场/设置"同级），
 //    打开独立面板：浏览已安装 skills（启用/禁用/删除/刷新），
 //    从 GitHub 市场仓库扫描并下载 skills；
-// 2) 注册 @ 输入触发源：输入框输入 @ 弹出 skills 选择器（支持按名称/
-//    描述搜索），选择后插入 `/skill-name` 用户显式调用手势。
+// 2) 注册 @ 输入触发源（两级路由菜单）：
+//    - 第一级「选择」：输入框输入 @ 弹出「技能 / 工作区文件」两个分类；
+//    - 点击分类后进入第二级（宿主 launcher 打开单分组菜单）：
+//      「技能」按名称/描述搜索 skills，「工作区文件」搜索当前会话工作区文件
+//      （依赖 dsh-code-panel 的 /code-panel/api/search）；
+//    - 选中技能或文件均以结构引用（occurrence chip）插入输入框——chip 带
+//      背景色边框，label 为「技能 · 名称」/「文件 · 相对路径」，一眼可辨；
+//      发送时经各自 codec 序列化为 `/skill-name`（服务端 SKILL_GESTURE 识别）
+//      或 `@相对路径`（模型可据此读取工作区文件）。
 // 注意：React 19 的 jsx(type, props) 中 children 必须放进 props 对象。
 window.__ModuleLoader__.load({
   id: "dsh-skill-manager",
@@ -405,7 +412,7 @@ window.__ModuleLoader__.load({
       return jsxs("div", { className: "dsh-sm", children: [
         jsxs("div", { className: "dsh-sm-head", children: [
           jsx("div", { className: "dsh-sm-title", children: "Skill 管理" }),
-          jsx("div", { className: "dsh-sm-sub", children: "下载、启用/禁用和管理 DSH skills。对话输入框输入 @ 可快速选用 skill（支持搜索）。" }),
+          jsx("div", { className: "dsh-sm-sub", children: "下载、启用/禁用和管理 DSH skills。对话输入框输入 @ 先选择「技能」或「工作区文件」，再搜索并引用（技能/文件会以带背景色的引用框插入输入框）。" }),
         ] }),
         jsxs("div", { className: "dsh-sm-tabs", children: [
           jsx("button", { className: "dsh-sm-tab" + (tab === "installed" ? " dsh-sm-tab-on" : ""), onClick: () => setTab("installed"), children: "已安装" }),
@@ -516,12 +523,259 @@ window.__ModuleLoader__.load({
         return snap && snap.current ? String(snap.current) : null;
       };
 
-      // @ 输入触发源：输入 @ 弹出 skills 选择器（与"子智能体/命令"分组并列）
+      // ---------------------------------------------------------------- @ 文件选择（工作区文件）
+
+      /** 取会话工作区根目录（sessions 投影里的 cwd）。 */
+      const workspaceRootOf = (sessionId) => {
+        try {
+          const snap = sessions.list.getSnapshot();
+          if (!snap || !snap.byId) return null;
+          const entry = snap.byId[sessionId];
+          return entry && entry.cwd ? String(entry.cwd) : null;
+        } catch {
+          return null;
+        }
+      };
+
+      /** 探测 dsh-code-panel 是否已安装（其客户端监听 probe 事件并同步应答）。 */
+      function codePanelAvailable() {
+        try {
+          const detail = { available: false };
+          window.dispatchEvent(new CustomEvent("dsh-code-panel:probe", { detail }));
+          return detail.available === true;
+        } catch {
+          return false;
+        }
+      }
+
+      /** 调用代码面板搜索接口（携带 abort signal；被中断时抛出 AbortError）。 */
+      async function fetchFileSearch(root, query, signal) {
+        const params = new URLSearchParams({ root, limit: "50" });
+        if (query) params.set("query", query);
+        let res;
+        try {
+          res = await fetch("/code-panel/api/search?" + params.toString(), { signal });
+        } catch (err) {
+          if (err && err.name === "AbortError") throw err;
+          throw new Error("无法连接代码面板服务：" + (err && err.message ? err.message : String(err)));
+        }
+        let data = {};
+        try {
+          data = await res.json();
+        } catch {
+          /* 非 JSON 响应 */
+        }
+        if (!res.ok || data.ok === false) {
+          throw new Error(data && data.error ? data.error : "请求失败（HTTP " + res.status + "）");
+        }
+        return data;
+      }
+
+      /** 文件条目的图标（与代码面板的扩展名图标风格一致）。 */
+      const FILE_ICONS = {
+        js: "🟨", mjs: "🟨", cjs: "🟨", jsx: "🟨", ts: "🟦", tsx: "🟦",
+        json: "🧾", css: "🎨", html: "🌐", md: "📝", py: "🐍", sql: "🗄️",
+        ps1: "🟦", sh: "⚙️", yaml: "⚙️", yml: "⚙️", go: "🔵", rs: "🦀",
+        java: "☕", c: "©️", cpp: "©️", cs: "🟣", rb: "💎", php: "🐘",
+        png: "🖼️", jpg: "🖼️", jpeg: "🖼️", gif: "🖼️", webp: "🖼️", svg: "🖼️",
+      };
+      function fileIconOf(name, image) {
+        if (image) return "🖼️";
+        const dot = name.lastIndexOf(".");
+        const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+        return FILE_ICONS[ext] || "📄";
+      }
+      function fmtSize(n) {
+        if (n == null || n <= 0) return "";
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / (1024 * 1024)).toFixed(1) + " MB";
+      }
+
+      // ---------------------------------------------------------------- @ 两级菜单（路由）
+
+      /**
+       * @ 菜单分两级：先选「技能 / 工作区文件」，再显示对应分组的内容。
+       * 实现：三个 @ 源（选择/技能/工作区文件）始终注册，各自按当前阶段
+       * (stages) 返回候选——非当前阶段返回空数组，空分组在菜单中不渲染，
+       * 因此任意时刻菜单只显示当前阶段的分组；点击分类后通过宿主 launcher
+       * (controller.toggleSource) 打开只含该分类分组的菜单，@ 后已输入的
+       * 查询词随切换延续。
+       */
+      const stages = new Map();      // sessionId -> "category" | "skill" | "工作区文件"
+      const pendingCat = new Map();  // sessionId -> 分类切换在途标记（防菜单关闭回调误重置）
+      const menuWatches = new Map(); // sessionId -> { controller, off }
+
+      const stageOf = (sessionId) => stages.get(sessionId) || "category";
+
+      /** 取会话的输入触发控制器（与宿主 ui-input-trigger 同一实例）。 */
+      function controllerOf(sessionId) {
+        try {
+          const actx = sessions.scope(sessionId);
+          if (!actx) return null;
+          return inputTriggers.sessionOf(actx);
+        } catch {
+          return null;
+        }
+      }
+
+      /**
+       * 订阅会话菜单的关闭事件：菜单关闭（选中/Esc/点击外部/删除 @）且没有
+       * 分类切换在途时，把阶段重置回「选择」，保证下一次 @ 从分类层开始。
+       * 随会话作用域销毁自动释放订阅。
+       */
+      function ensureMenuWatch(sessionId) {
+        if (menuWatches.has(sessionId)) return menuWatches.get(sessionId);
+        const controller = controllerOf(sessionId);
+        if (!controller) return null;
+        const off = controller.menu.subscribe((state) => {
+          if (state.open) return;
+          if (!pendingCat.has(sessionId)) stages.set(sessionId, "category");
+        });
+        const watch = { controller, off };
+        menuWatches.set(sessionId, watch);
+        try {
+          const actx = sessions.scope(sessionId);
+          if (actx && typeof actx.effect === "function") {
+            actx.effect(() => () => {
+              off();
+              if (menuWatches.get(sessionId) === watch) menuWatches.delete(sessionId);
+            }, "skill-manager: @ 菜单阶段 watch");
+          }
+        } catch {
+          /* 作用域清理失败不影响主流程 */
+        }
+        return watch;
+      }
+
+      /** 通过 launcher 打开只含一个分类分组的菜单（查询词与 @ 占位 span 延续）。 */
+      function openCategoryMenu(sessionId, cat, query, position, span) {
+        const watch = ensureMenuWatch(sessionId);
+        const controller = watch ? watch.controller : controllerOf(sessionId);
+        if (!controller) return false;
+        controller.toggleSource(cat, {
+          trigger: "@",
+          query: query || "",
+          position: position || "leading",
+          span,
+        });
+        return controller.menu.getSnapshot().open;
+      }
+
+      /**
+       * @ 路由源（第一级）：候选为「技能 / 工作区文件」两个分类。
+       * 点击分类后切换阶段，并延迟用 launcher 打开对应分组菜单
+       * （pick 内部会无条件关闭菜单，必须在 pick 完成后的微任务里重开，
+       * 避免菜单闪断；span 保持原 @ 占位，供最终选中时 CAS 替换）。
+       */
+      const routerSource = {
+        trigger: "@",
+        name: "选择",
+        order: 10,
+        async candidates(session, { query }) {
+          if (stageOf(session.sessionId) !== "category") return [];
+          const q = (query || "").toLowerCase();
+          const items = [
+            { name: "技能", description: "从已安装的 skills 中选择并引用", icon: "⚡", category: "skill" },
+            { name: "工作区文件", description: "引用当前工作区的文件", icon: "📁", category: "工作区文件" },
+          ];
+          if (!q) return items;
+          const hit = items.filter((i) => i.name.toLowerCase().includes(q));
+          if (hit.length === 0) {
+            return [{ name: "无匹配：\u201C" + query + "\u201D", description: "可选「技能」或「工作区文件」", noMatch: true }];
+          }
+          return hit;
+        },
+        onPick({ candidate, session, position, span }) {
+          if (!candidate || candidate.noMatch || !candidate.category) return void 0;
+          const sid = session.sessionId;
+          const cat = candidate.category;
+          const controller = controllerOf(sid);
+          if (!controller) return void 0;
+          ensureMenuWatch(sid);
+          const hit = controller.menu.getSnapshot().hit;
+          const query = hit && hit.query ? hit.query : "";
+          stages.set(sid, cat);
+          pendingCat.set(sid, cat);
+          Promise.resolve().then(() => {
+            if (pendingCat.get(sid) !== cat) return; // 期间已关闭并被重置
+            const opened = openCategoryMenu(sid, cat, query, position, span);
+            pendingCat.delete(sid);
+            if (!opened) stages.set(sid, "category"); // 打开失败则回退到分类层
+          });
+          return "handled";
+        },
+      };
+
+      /**
+       * @ 文件选择源（第二级）：阶段为「工作区文件」时展示当前会话工作区文件。
+       * 候选来自 dsh-code-panel 的 /code-panel/api/search（未安装时显示提示占位）；
+       * 选中后以结构引用（occurrence chip）插入输入框——chip 带背景色边框、
+       * label 为「文件 · 相对路径」，一眼可辨；发送时经 codec 序列化为
+       * `@相对路径`（与宿主 subagent 引用 `@name` 的惯例一致，模型可据此
+       * 读取工作区文件）。注：分组标题由输入触发菜单按 source.name 查 locale，
+       * 未知键原样返回，因此直接使用中文名即可显示"工作区文件"。
+       */
+      const fileSource = {
+        trigger: "@",
+        name: "工作区文件",
+        order: 30,
+        async candidates(session, { query, signal }) {
+          if (stageOf(session.sessionId) !== "工作区文件") return [];
+          if (!codePanelAvailable()) {
+            return [{ name: "未安装代码面板（dsh-code-panel）", description: "安装后才能在 @ 菜单浏览工作区文件", noMatch: true }];
+          }
+          const cwd = workspaceRootOf(session.sessionId);
+          if (!cwd) {
+            return [{ name: "当前会话没有工作区", description: "新建会话并选择工作区后可用", noMatch: true }];
+          }
+          try {
+            const data = await fetchFileSearch(cwd, query, signal);
+            if (signal && signal.aborted) return [];
+            const q = (query || "").toLowerCase();
+            const items = (data.files || []).map((f) => ({
+              name: f.name,
+              description: (fmtSize(f.size) ? fmtSize(f.size) + " · " : "") + f.rel,
+              icon: fileIconOf(f.name, f.image),
+              file: { root: data.root || cwd, rel: f.rel, name: f.name },
+            }));
+            if (q && items.length === 0) {
+              // 无匹配占位：让用户知道搜索已生效（onPick 空操作）
+              return [{ name: "无匹配：\u201C" + query + "\u201D", description: "试试文件名或路径中的关键词", noMatch: true }];
+            }
+            return items;
+          } catch (err) {
+            if (err && err.name === "AbortError") return [];
+            console.error("[skill-manager] @ 文件搜索失败:", err && err.message ? err.message : String(err));
+            return [];
+          }
+        },
+        onPick({ candidate }) {
+          if (!candidate || candidate.noMatch || !candidate.file) return void 0;
+          // 结构引用：输入框显示为带背景色的 chip（「文件 · 相对路径」），
+          // 发送时由 codec.serialize 展开为 @相对路径
+          return {
+            insert: {
+              source: "工作区文件",
+              ref: candidate.file.rel,
+              label: "文件 · " + candidate.file.rel,
+              clipboardText: candidate.file.rel,
+            },
+          };
+        },
+        codec: {
+          clipboardText: (ref) => ref,
+          serialize: (ref) => Promise.resolve("@" + ref),
+        },
+      };
+
+      // @ 技能选择源（第二级）：阶段为「skill」时展示 skills（与"子智能体/命令"分组并列）
       const source = {
         trigger: "@",
         name: "skill",
         order: 20,
         async candidates(session, { query, signal }) {
+          if (stageOf(session.sessionId) !== "skill") return [];
           let skills = [];
           try {
             skills = await fetchCatalog(session.sessionId);
@@ -535,6 +789,9 @@ window.__ModuleLoader__.load({
             name: skill.name,
             description: skill.modelInvocable ? skill.description : "仅用户 · " + skill.description,
           });
+          if (skills.length === 0) {
+            return [{ name: "没有可用的技能", description: "到「Skill 管理」面板下载安装", noMatch: true }];
+          }
           if (!q) {
             return skills.map(toItem);
           }
@@ -573,18 +830,36 @@ window.__ModuleLoader__.load({
         },
         onPick({ candidate }) {
           if (candidate && candidate.noMatch) return void 0; // 占位条目：不插入
-          // 插入 `/skill-name` 用户显式调用手势（由服务端 SKILL_GESTURE 识别）
-          return { text: "/" + candidate.name + " " };
+          // 结构引用：输入框显示为带背景色的 chip（「技能 · 名称」），
+          // 发送时由 codec.serialize 展开为 `/skill-name` 用户显式调用手势
+          // （服务端 SKILL_GESTURE 识别，等价于直接输入 /skill-name）
+          return {
+            insert: {
+              source: "skill",
+              ref: candidate.name,
+              label: "技能 · " + candidate.name,
+              clipboardText: "/" + candidate.name,
+            },
+          };
+        },
+        codec: {
+          clipboardText: (ref) => "/" + ref,
+          serialize: (ref) => Promise.resolve("/" + ref),
         },
       };
       const inputTriggers = ctx.get("inputTriggers");
+      // @ 两级菜单：路由源（选择分类）+ 技能源 + 工作区文件源
       ctx.effect(() => {
-        const unregister = inputTriggers.registerSource(source);
+        const offs = [
+          inputTriggers.registerSource(routerSource),
+          inputTriggers.registerSource(source),
+          inputTriggers.registerSource(fileSource),
+        ];
         return () => {
-          unregister();
+          for (const off of offs) off();
           clearAll();
         };
-      }, "skill-manager: @ source");
+      }, "skill-manager: @ sources");
 
       ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
         name: "sidebar.footer.action",
@@ -598,7 +873,11 @@ window.__ModuleLoader__.load({
         }),
       }, SkillManagerEntry));
 
-      ctx.on("connection/reset", clearAll);
+      ctx.on("connection/reset", () => {
+        clearAll();
+        stages.clear();
+        pendingCat.clear();
+      });
       if (ctx.remote && ctx.remote.$on) {
         ctx.remote.$on("agent-preset/selected", clearAll);
       }
