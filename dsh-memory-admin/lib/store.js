@@ -342,6 +342,22 @@ export class MemoryStore {
   }
 
   /**
+   * 对话开始时的注入候选：全局记忆 + 当前工作区记忆（不含会话记忆），
+   * 按重要度降序（同重要度按更新时间降序）。上限默认 100，防注入膨胀。
+   */
+  listInjectionCandidates({ workspaceId, limit = 100 } = {}) {
+    const where = ['scope = ?'];
+    const values = ['global'];
+    if (workspaceId) {
+      where.push('(scope = ? AND workspace_id = ?)');
+      values.push('workspace', workspaceId);
+    }
+    const sql = `SELECT * FROM memories WHERE ${where.join(' OR ')} ORDER BY importance DESC, updated_at DESC LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...values, limit);
+    return rows.map(toMemory);
+  }
+
+  /**
    * 列出某个会话"可见"的记忆：全局 + 该会话所属工作区 + 该会话自身。
    * workspaceId 为 null/undefined 时只含全局与会话级。
    * 支持分类/关键词/标签过滤；传 scope 时进一步限定为该作用域。

@@ -1,20 +1,20 @@
 /**
  * dsh-memory-admin —— 记忆可见性机制
  *
- * 1. 自动记忆：真实用户消息自动沉淀进记忆库（可配置开关）。
- * 2. 对话加载记忆（核心需求）：在 agent/pre-step 钩子中，当一条新的
- *    用户消息进入对话时，自动从记忆库召回相关记忆，并作为一条
- *    "context" 消息注入本次请求——
+ * 1. 自动记忆：真实用户消息自动沉淀进记忆库（会话级留档，可配置开关）。
+ * 2. 对话开始加载记忆（核心需求）：在 agent/pre-step 钩子中，只在
+ *    「对话开始」（每个会话首次用户消息）时，把 全局记忆 + 当前工作区
+ *    记忆 作为一条 "context" 消息注入本次请求——
  *    · 模型可见：注入的消息进入 LLM 请求历史，模型真正"用上"记忆；
  *    · 用户可见：注入的消息以 source.kind !== 'user' 的 user/message
  *      追加进会话日志，Web UI 会把它渲染为上下文块（context chip），
  *      对话里直接看到"本次对话加载了哪些记忆模块"。
+ *    会话记忆仅作留档，不注入 context；之后的用户消息也不再注入。
  * 3. 每次注入都写入 memory_loads 表（审计 + memory_loaded 查询）。
  */
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { CATEGORY_LABELS, SCOPE_LABELS } from './store.js';
-import { recall } from './recall.js';
-import { resolveWorkspaceId } from './context.js';
+import { resolveWorkspaceId, hasPriorUserMessage } from './context.js';
 
 /** 从 ContentBlock[] 提取纯文本。 */
 export function extractText(blocks) {
@@ -95,12 +95,17 @@ export function installMemoryHooks(ctx, store, config) {
     });
   }
 
-  // ---- 对话加载记忆：新用户消息 → 召回 → 注入上下文 ----
+  // ---- 对话开始加载记忆（用户需求）：只在会话开始时注入一次 ----
+  // · 只有「对话开始」（该会话的第一条真实用户消息）才加载并注入
+  //   「全局记忆 + 当前工作区记忆」（按重要度降序，全部注入）；
+  // · 判断依据是会话历史：只要本次消息之前已经存在更早的真实用户消息，
+  //   就不算对话开始（即使插件/运行时中途重启过，也不会重复注入）；
+  // · 会话记忆仅作留档，不注入 context；之后的用户消息也不再注入。
   if (config.recallEnabled) {
-    ctx.on('agent/pre-step', async ({ agent, messages, turn, step, signal }, next) => {
+    ctx.on('agent/pre-step', async ({ agent, messages, step, signal }, next) => {
       const decision = await next();
       if (!decision || decision.kind !== 'enter') return decision;
-      if (step !== 1) return decision; // 只在回合第一步注入
+      if (step !== 1) return decision; // 只在回合第一步处理
       const session = agent.session;
       const sessionId = String(session.id ?? 'unknown');
 
@@ -114,27 +119,19 @@ export function installMemoryHooks(ctx, store, config) {
       const newMessages = freshUserMessages.filter((m) => !seen.has(m.id));
       if (newMessages.length === 0) return decision;
 
+      // 历史里是否已有更早的真实用户消息（= 这个会话不是刚刚开始）
+      // 注意：decision.messages 只含本次 claim 的消息，必须查会话事件日志 session.log
+      const priorUser = hasPriorUserMessage(session.log, claimedIds);
+
       const query = newMessages.map((m) => extractText(m.content)).join('\n').trim();
-      if (!query) {
-        for (const m of newMessages) seen.add(m.id);
-        markProcessed(sessionId, seen);
-        return decision;
-      }
-
-      // 排除本会话已经加载过的记忆（避免重复注入同一内容）
-      const alreadyLoaded = new Set(store.loadedForSession(sessionId, { limit: 200 }).map((l) => l.memoryId));
-      // 三层可见范围：全局 + 当前会话所属工作区 + 当前会话
-      const workspaceId = resolveWorkspaceId(ctx, sessionId);
-      const loaded = recall(store, query, {
-        topK: config.recallTopK,
-        minScore: config.recallMinScore,
-        excludeIds: alreadyLoaded,
-        sessionId,
-        workspaceId,
-      });
-
       for (const m of newMessages) seen.add(m.id);
       markProcessed(sessionId, seen);
+      // 非对话开始（或空消息）：只标记已处理，不注入
+      if (priorUser || !query) return decision;
+
+      // 全局 + 当前工作区记忆（会话记忆仅留档，不注入）
+      const workspaceId = resolveWorkspaceId(ctx, sessionId);
+      const loaded = store.listInjectionCandidates({ workspaceId }).map((memory) => ({ memory, score: 1 }));
 
       if (loaded.length === 0) return decision;
       if (!config.injectContext) {
@@ -161,7 +158,7 @@ export function installMemoryHooks(ctx, store, config) {
       const messages2 = [...decision.messages];
       messages2.splice(lastClaimedIndex + 1, 0, contextMessage);
       ctx.logger.info(
-        `dsh-memory-admin: 会话 ${sessionId.slice(0, 8)}… 第 ${turn} 回合加载了 ${loaded.length} 条记忆（${loaded.map((l) => `#${l.memory.id}`).join(', ')}）`,
+        `dsh-memory-admin: 会话 ${sessionId.slice(0, 8)}… 对话开始时加载了 ${loaded.length} 条记忆（${loaded.map((l) => `#${l.memory.id}`).join(', ')}）`,
       );
       return { ...decision, messages: messages2 };
     });

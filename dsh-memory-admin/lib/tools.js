@@ -136,7 +136,7 @@ export function registerMemoryTools(ctx, store) {
     defineTool({
       name: 'memory_search',
       description:
-        '按语义相关度在长期记忆库中搜索最相关的记忆（词元重叠 + 重要度 + 时效性打分，无需 embedding）。默认只检索当前会话可见范围（全局 + 本工作区 + 本会话）。适合"我记得之前聊过/做过…"的检索。',
+        '按语义相关度在长期记忆库中搜索最相关的记忆（词元重叠 + 重要度 + 时效性打分，无需 embedding）。检索范围默认是当前会话可见范围（全局 + 本工作区 + 本会话，会话记忆按需检索、不会自动注入）。适合"我记得之前聊过/做过…"的检索。',
       parameters: {
         query: { type: 'string', required: true, description: '检索查询，描述你想找的记忆内容' },
         topK: { type: 'integer', description: '返回条数，默认 5，最大 20' },

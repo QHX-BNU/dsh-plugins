@@ -12,7 +12,7 @@
  *   1) @ 只显示「选择」分类层（技能/文件分组不渲染）
  *   2) 点「技能」→ 微任务后打开技能单分组菜单，查询词延续
  *   3) 第二级输入时 track 重播种后仍只显示技能分组
- *   4) 选中技能 → mint 技能 chip（label「技能 · 名称」），提交序列化为 /skill-name
+ *   4) 选中技能 → 插入真实文本 /skill-name（光标可自由移动，无占位符）
  *   5) 选中文件 → mint 文件 chip（label「文件 · 相对路径」），提交序列化为 @相对路径
  *   6) 菜单关闭（Esc/选中）后阶段复位
  * 运行：node test/menu-flow.mjs
@@ -141,11 +141,18 @@ function insertReference(reference, span) {
   lastInsert = { kind: 'insert', reference };
   return true;
 }
+// 输入机器 insert-text：CAS + 替换 span 为文本（技能引用走真实文本）
+function insertText(text, span) {
+  if (span.draftRev !== draftRev) return false;
+  lastInsert = { kind: 'text', text };
+  return true;
+}
 let lastInsert = null;
 const execute = (outcome, span) => {
   if (outcome === void 0 || outcome === 'handled') return false;
   if ('insert' in outcome) return insertReference(outcome.insert, span);
-  return false; // 本实现不再走纯文本
+  if ('text' in outcome) return insertText(outcome.text, span);
+  return false;
 };
 
 // 提交序列化：每个 occurrence 经 owner codec 展开（sinkSerialized 语义）
@@ -228,14 +235,8 @@ const onPickOf = (name) => ({ candidate, position, span }) => {
   }
   if (name === 'skill') {
     if (!candidate || candidate.noMatch) return void 0;
-    return {
-      insert: {
-        source: 'skill',
-        ref: candidate.name,
-        label: '技能 · ' + candidate.name,
-        clipboardText: '/' + candidate.name,
-      },
-    };
+    // 纯文本插入：真实文本，光标可自由移动；由 text-ref 扫描装饰
+    return { text: '/' + candidate.name + ' ' };
   }
   return void 0;
 };
@@ -281,7 +282,7 @@ await (async () => {
   check(pendingCat.get('s1') === void 0, '在途标记已清除');
 })();
 
-console.log('== 流程 3：选中技能 → mint 技能 chip，提交序列化为 /skill-name ==');
+console.log('== 流程 3：选中技能 → 插入真实文本 /skill-name（光标可自由移动） ==');
 {
   draftRev += 1; // 模拟输入（fresh hit / span CAS 通过）
   track('@al', 3);
@@ -290,10 +291,8 @@ console.log('== 流程 3：选中技能 → mint 技能 chip，提交序列化�
   check(items.length === 1 && items[0].name === 'alpha-skill', '查询词延续（al → alpha-skill）');
   pick('skill', 0);
   check(state.open === false, '选中后菜单关闭');
-  check(lastInsert !== null && lastInsert.kind === 'insert', '以结构引用插入（非纯文本）');
-  check(lastInsert.reference.source === 'skill' && lastInsert.reference.ref === 'alpha-skill', '引用指向 skill 源');
-  check(lastInsert.reference.label === '技能 · alpha-skill', 'chip label 带「技能 · 」前缀');
-  check(occurrences.length === 1 && occurrences[0].label === '技能 · alpha-skill', 'occurrence（chip）已 mint');
+  check(lastInsert !== null && lastInsert.kind === 'text' && lastInsert.text === '/alpha-skill ', '插入真实文本 /alpha-skill（非占位符 chip）');
+  check(occurrences.length === 0, '技能引用不 mint occurrence（文本可编辑，光标可进入文字中间）');
   check(stages.get('s1') === 'category', '菜单关闭后阶段复位到分类层');
 }
 
@@ -311,9 +310,9 @@ await (async () => {
   check(lastInsert !== null && lastInsert.kind === 'insert', '文件以结构引用插入');
   check(lastInsert.reference.source === '工作区文件' && lastInsert.reference.ref === 'docs/b.md', '引用指向文件源');
   check(lastInsert.reference.label === '文件 · docs/b.md', 'chip label 带「文件 · 」前缀');
-  check(occurrences.length === 2, '两个 occurrence（技能 + 文件）');
+  check(occurrences.length === 1, '仅文件 mint occurrence（技能走文本，无占位符）');
   const serialized = await sinkSerialized();
-  check(serialized.includes('/alpha-skill') && serialized.includes('@docs/b.md'), `提交序列化：/alpha-skill 与 @docs/b.md（实际：${serialized}）`);
+  check(serialized.includes('@docs/b.md'), `提交序列化：@docs/b.md（实际：${serialized}）`);
   check(stages.get('s1') === 'category', '菜单关闭且阶段复位');
   track('@', 1);
   check(JSON.stringify(visibleGroups()) === JSON.stringify(['选择']), '下一次 @ 从分类层开始');

@@ -153,6 +153,20 @@ assert(moved2.workspaceId === 'ws-2', '迁移到 workspace 绑定新工作区');
 const moved3 = store.update(moved2.id, { scope: 'session', sessionId: 'session-C' });
 assert(moved3.scope === 'session' && moved3.sessionId === 'session-C', '迁移到 session 绑定会话');
 
+// 对话开始注入候选：全局 + 本工作区（不含会话记忆），按重要度降序
+const injGlobal = store.add({ content: '注入测试全局记忆', category: 'knowledge', importance: 0.5, scope: 'global' });
+const injWsMem = store.add({ content: '注入测试工作区记忆', category: 'knowledge', importance: 0.9, scope: 'workspace', workspaceId: 'ws-2' });
+const injSessMem = store.add({ content: '注入测试会话记忆', category: 'knowledge', scope: 'session', sessionId: 'session-X' });
+const injCandidates = store.listInjectionCandidates({ workspaceId: 'ws-2' });
+const injIds = new Set(injCandidates.map((m) => m.id));
+assert(injIds.has(injGlobal) && injIds.has(injWsMem), '注入候选含全局+本工作区记忆');
+assert(!injIds.has(injSessMem), '注入候选不含会话记忆');
+assert(injCandidates[0].id === injWsMem, '注入候选按重要度降序（工作区 0.9 排前）');
+const injNoWs = store.listInjectionCandidates({});
+assert(injNoWs.some((m) => m.id === injGlobal) && !injNoWs.some((m) => m.id === injWsMem), '无工作区上下文时注入候选仅全局');
+const injLimit = store.listInjectionCandidates({ workspaceId: 'ws-2', limit: 1 });
+assert(injLimit.length === 1 && injLimit[0].id === injWsMem, '注入候选 limit 生效');
+
 // 召回按可见范围过滤
 const recallHit = recall(store, '会话 A 的临时笔记', { topK: 5, minScore: 0.2, sessionId: 'session-X', workspaceId: 'ws-9' });
 assert(recallHit.some((r) => r.memory.id === moved.id), 'global 记忆对任意会话可见（迁移后）');
@@ -171,6 +185,39 @@ assert(stats2.byScope && stats2.byScope['global'] >= 1 && stats2.byScope['sessio
 // 工具输出要求 lossless JSON：记忆对象 JSON 往返后字段不得丢失（undefined 会触发工具系统报错）
 const roundTrip = JSON.parse(JSON.stringify(store.get(moved.id)));
 assert(roundTrip.workspaceId === null && roundTrip.sessionId === null && 'scope' in roundTrip && 'workspaceId' in roundTrip, '记忆对象可无损 JSON 序列化');
+
+console.log('== 对话开始判定 ==');
+import { hasPriorUserMessage } from '../lib/context.js';
+// 模拟 session.log 事件（'user/message' 事件的 data 就是消息本体）
+const log = (...events) => events.map((e) => ({ type: e.type, data: e.data, seq: 0 }));
+const um = (id) => ({ id, role: 'user', source: { kind: 'user' } });
+const cm = (id) => ({ id, role: 'user', source: { kind: 'memory-admin', plugin: 'dsh-memory-admin' } });
+// 全新会话：日志里只有本次被 claim 的消息 → 是对话开始
+assert(hasPriorUserMessage(log({ type: 'user/message', data: um('m1') }), new Set(['m1'])) === false, '全新会话判为对话开始');
+// 已聊过的会话：日志里有更早的用户消息 → 不是对话开始
+assert(
+  hasPriorUserMessage(log({ type: 'user/message', data: um('m0') }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === true,
+  '历史含更早用户消息判为非开始',
+);
+// 注入过的 context 块（kind=memory-admin）不算用户消息
+assert(
+  hasPriorUserMessage(log({ type: 'user/message', data: um('m0') }, { type: 'user/message', data: cm('ctx1') }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === true,
+  '历史中的注入块不影响判定（仍非开始）',
+);
+assert(
+  hasPriorUserMessage(log({ type: 'user/message', data: cm('ctx1') }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === false,
+  '仅有注入块时仍算对话开始',
+);
+// 无法匹配 id 的事件保守视为更早消息
+assert(
+  hasPriorUserMessage(log({ type: 'user/message', data: { role: 'user', source: { kind: 'user' } } }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === true,
+  '无 id 的用户事件保守判为非开始',
+);
+// 非 user 事件不影响
+assert(
+  hasPriorUserMessage(log({ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === false,
+  '非用户事件不影响判定',
+);
 
 store.close();
 console.log(failures === 0 ? '\n== 全部通过 ==' : `\n== ${failures} 项失败 ==`);

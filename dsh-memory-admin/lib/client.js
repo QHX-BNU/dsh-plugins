@@ -414,7 +414,7 @@ window.__ModuleLoader__.load({
       return jsx("div", { className: "dsh-mem-admin", children: [
         jsxs("div", { className: "dsh-mem-head", children: [
           jsx("div", { className: "dsh-mem-title", children: "记忆管理" }),
-          jsx("div", { className: "dsh-mem-sub", children: "三层作用域：全局（所有会话加载，适合用户偏好）· 工作区（仅该工作区下的会话）· 会话（仅当前会话，默认）。新记忆默认会话级；其他层级需显式指定。" }),
+          jsx("div", { className: "dsh-mem-sub", children: "三层作用域：全局/工作区记忆在对话开始时自动加载一次；会话记忆仅留档、不注入上下文。新记忆默认会话级；其他层级需显式指定。" }),
         ] }),
         jsx("div", { className: "dsh-mem-stats", children: [
           jsx("span", { className: "dsh-mem-chip", children: "共 " + total + " 条记忆" }),

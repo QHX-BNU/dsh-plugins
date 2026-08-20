@@ -37,13 +37,13 @@ export const Config = z.object({
   autoRememberImportance: z.number().default(0.6),
   /** 是否也自动记忆子代理会话的提示词（默认否，避免污染记忆库）。 */
   autoRememberSubagent: z.boolean().default(false),
-  /** 是否启用对话记忆召回（新用户消息到达时自动检索并注入）。 */
+  /** 是否启用"对话开始加载记忆"（每个会话首次用户消息时注入全局+工作区记忆）。 */
   recallEnabled: z.boolean().default(true),
-  /** 每轮对话最多加载（注入）几条记忆。 */
+  /** 保留兼容：自动注入现在按重要度加载全部全局+工作区记忆，不再按条数截断。 */
   recallTopK: z.number().default(5),
-  /** 召回相关度最低分（0~1+，词元覆盖度+重要度加成+时效加成）。 */
+  /** 保留兼容：自动注入不再做相关度筛选（全局/工作区记忆是常驻偏好，全部加载）。 */
   recallMinScore: z.number().default(0.4),
-  /** 是否把召回的记忆注入对话上下文（关闭则只记录不注入）。 */
+  /** 是否把加载的记忆注入对话上下文（关闭则只记录不注入）。 */
   injectContext: z.boolean().default(true),
   /** 是否注册可视化页面 API（设置页"记忆管理"section 依赖它）。 */
   webApi: z.boolean().default(true),

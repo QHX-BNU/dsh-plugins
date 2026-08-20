@@ -7,10 +7,10 @@
 //    - 点击分类后进入第二级（宿主 launcher 打开单分组菜单）：
 //      「技能」按名称/描述搜索 skills，「工作区文件」搜索当前会话工作区文件
 //      （依赖 dsh-code-panel 的 /code-panel/api/search）；
-//    - 选中技能或文件均以结构引用（occurrence chip）插入输入框——chip 带
-//      背景色边框，label 为「技能 · 名称」/「文件 · 相对路径」，一眼可辨；
-//      发送时经各自 codec 序列化为 `/skill-name`（服务端 SKILL_GESTURE 识别）
-//      或 `@相对路径`（模型可据此读取工作区文件）。
+//    - 选中技能：插入真实文本 `/skill-name `（光标可自由移动/编辑），由
+//      隐藏的 "/" lexicon 源 + 宿主 text-ref 扫描装饰为带背景的引用样式；
+//    - 选中文件：以结构引用（occurrence chip）插入（label「文件 · 相对路径」），
+//      发送时经 codec 序列化为 `@相对路径`（模型可据此读取工作区文件）。
 // 注意：React 19 的 jsx(type, props) 中 children 必须放进 props 对象。
 window.__ModuleLoader__.load({
   id: "dsh-skill-manager",
@@ -91,6 +91,40 @@ window.__ModuleLoader__.load({
 .dsh-sm-hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dsh-sm-skill-path{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:var(--dsw-alias-label-secondary);word-break:break-all}
 .dsh-sm-loading{color:var(--dsw-alias-label-tertiary);font-size:13px;text-align:center;padding:20px 0}
+/* @ 技能/文件引用框（输入框 chip）：宽度自适应内容，超长截断。
+   宿主默认把 label 按占位符宽度缩放（scale .72）并截断，长名称显示不全。
+   这里把 chip 改为 inline-flex、label 回归文档流；背景/圆角/内边距移到
+   label 上（chip 容器透明），:before 占位符不再渲染（display:none）——
+   消除引用框左侧那段空白（textarea 中的真实占位符字符仍保留，删除/退格
+   = 整框删除的交互不变）。label 短于阈值（240px）时宽度自适应内容，
+   超过阈值时 ellipsis 截断（悬停 title 可看完整）。仅命中本插件产生的
+   chip（title 以「技能 ·」/「文件 ·」开头），不影响"子智能体"等宿主引用。 */
+[data-decoration="chip"][title^="技能 ·"],
+[data-decoration="chip"][title^="文件 ·"]{
+  display:inline-flex;align-items:center;max-width:min(264px,52vw);
+  padding:0;white-space:nowrap;background:transparent;
+}
+[data-decoration="chip"][title^="技能 ·"]::before,
+[data-decoration="chip"][title^="文件 ·"]::before{
+  display:none;
+}
+[data-decoration="chip"][title^="技能 ·"] > span,
+[data-decoration="chip"][title^="文件 ·"] > span{
+  position:static;transform:none;width:auto;display:inline-block;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:min(240px,48vw);border-radius:6px;padding:0 8px;
+}
+[data-decoration="chip"][title^="技能 ·"] > span{background:#6187d838}
+[data-decoration="chip"][title^="文件 ·"] > span{background:#4caf5038}
+/* 技能引用（text-ref 装饰，真实文本）：\`/skill-name\` 在输入框中显示为
+   带背景的引用样式。text-ref 装饰的是 draft 中的真实字符，光标可自由
+   移动（这是它替代 occurrence chip 的原因——chip 的占位符只有 1 字符宽，
+   光标无法进入文字中间）。负 margin 抵消 padding 造成的布局偏移，
+   保持与 textarea 逐字符对齐。作用于所有 text-ref（含手打的 /命令、
+   @子智能体 等），统一"引用"视觉。 */
+[data-decoration="text-ref"]{
+  background:#6187d838;border-radius:6px;padding:0 6px;margin:0 -6px;
+}
 `;
 
     function ensureCss() {
@@ -830,30 +864,51 @@ window.__ModuleLoader__.load({
         },
         onPick({ candidate }) {
           if (candidate && candidate.noMatch) return void 0; // 占位条目：不插入
-          // 结构引用：输入框显示为带背景色的 chip（「技能 · 名称」），
-          // 发送时由 codec.serialize 展开为 `/skill-name` 用户显式调用手势
-          // （服务端 SKILL_GESTURE 识别，等价于直接输入 /skill-name）
-          return {
-            insert: {
-              source: "skill",
-              ref: candidate.name,
-              label: "技能 · " + candidate.name,
-              clipboardText: "/" + candidate.name,
-            },
-          };
+          // 纯文本插入 `/skill-name `：真实文本，光标可自由定位（可进入
+          // 文字中间编辑）；输入框内由宿主 text-ref 扫描 + 本插件的隐藏
+          // "/" lexicon 源装饰为带背景的引用样式（见 css 中
+          // [data-decoration="text-ref"] 覆盖）。发送文本即 /skill-name，
+          // 服务端 SKILL_GESTURE 识别（等价于直接输入 /skill-name）。
+          return { text: "/" + candidate.name + " " };
         },
-        codec: {
-          clipboardText: (ref) => "/" + ref,
-          serialize: (ref) => Promise.resolve("/" + ref),
+      };
+
+      /**
+       * 隐藏 lexicon 源：trigger "/"、无候选（分组不渲染），只为宿主
+       * text-ref 扫描提供「技能名」词表——让输入框里的 `/skill-name`
+       * 被装饰为可编辑的引用样式（真实文本，光标可自由移动）。
+       */
+      const skillRefLexiconSource = {
+        trigger: "/",
+        name: "skill-ref",
+        order: 99,
+        async candidates() {
+          return []; // 空分组：不在 / 命令菜单中渲染
+        },
+        lexicon(session) {
+          return fetches.get(session.sessionId) && fetches.get(session.sessionId).settled
+            ? fetches.get(session.sessionId).settled.map((skill) => skill.name)
+            : void 0;
+        },
+        subscribeLexicon(session, listener) {
+          const key = session.sessionId;
+          const listeners = lexiconListeners.get(key) || new Set();
+          listeners.add(listener);
+          lexiconListeners.set(key, listeners);
+          return () => {
+            listeners.delete(listener);
+            if (listeners.size === 0) lexiconListeners.delete(key);
+          };
         },
       };
       const inputTriggers = ctx.get("inputTriggers");
-      // @ 两级菜单：路由源（选择分类）+ 技能源 + 工作区文件源
+      // @ 两级菜单：路由源（选择分类）+ 技能源 + 工作区文件源 + 技能名 lexicon 源
       ctx.effect(() => {
         const offs = [
           inputTriggers.registerSource(routerSource),
           inputTriggers.registerSource(source),
           inputTriggers.registerSource(fileSource),
+          inputTriggers.registerSource(skillRefLexiconSource),
         ];
         return () => {
           for (const off of offs) off();
