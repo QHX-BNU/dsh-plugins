@@ -20,8 +20,26 @@ window.__ModuleLoader__.load({
 
     // ---------------------------------------------------------------- 常量
 
-    /** 面板开关状态（跨 details 条目与标题行按钮共享的模块级标志）。 */
-    const panelState = { open: false };
+    /** 面板开关状态（跨 details 条目与标题行按钮共享的模块级标志，带订阅通知）。 */
+    const panelState = {
+      open: false,
+      listeners: new Set(),
+      set(open) {
+        if (panelState.open === open) return;
+        panelState.open = open;
+        for (const fn of panelState.listeners) {
+          try {
+            fn(open);
+          } catch {
+            /* 单个订阅者出错不影响其他订阅者 */
+          }
+        }
+      },
+      subscribe(fn) {
+        panelState.listeners.add(fn);
+        return () => panelState.listeners.delete(fn);
+      },
+    };
 
     const FILE_ICON = "📄";
     const DIR_ICON = "📁";
@@ -31,7 +49,16 @@ window.__ModuleLoader__.load({
       ps1: "🟦", sh: "⚙️", yaml: "⚙️", yml: "⚙️", go: "🔵", rs: "🦀",
       java: "☕", c: "©️", cpp: "©️", cs: "🟣", rb: "💎", php: "🐘",
       lua: "🌙", r: "📊", kt: "🟠", swift: "🟠", dart: "🔷",
+      png: "🖼️", apng: "🖼️", jpg: "🖼️", jpeg: "🖼️", gif: "🖼️", webp: "🖼️",
+      bmp: "🖼️", svg: "🖼️", ico: "🖼️", avif: "🖼️", heic: "🖼️", heif: "🖼️",
+      tif: "🖼️", tiff: "🖼️",
     };
+
+    /** 可预览的图片扩展名（与服务端 api.js 的 IMAGE_MIME 保持同步）。 */
+    const IMAGE_EXTS = new Set([
+      "png", "apng", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico",
+      "avif", "heic", "heif", "tif", "tiff",
+    ]);
 
     const MAX_HIGHLIGHT_CHARS = 200000;
     const MAX_TOKENS = 50000;
@@ -224,7 +251,46 @@ window.__ModuleLoader__.load({
           throw err;
         }
         return data;
+      }).catch((err) => {
+        // 服务端返回的业务错误直接透传；网络层失败给出友好提示
+        if (err && err.code) throw err;
+        const e = new Error("无法连接代码面板服务：" + (err && err.message ? err.message : String(err)));
+        e.code = "network";
+        throw e;
       });
+    }
+
+    /** 判断文件名是否为可预览图片（按扩展名）。 */
+    function isImageName(name) {
+      return IMAGE_EXTS.has(extOf(name));
+    }
+
+    /**
+     * 加载图片预览地址：图片接口返回二进制（image/*），错误时返回 JSON。
+     * 成功返回 { url, size }；失败抛出带信息的 Error。
+     */
+    async function loadImageUrl(url) {
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        throw new Error("无法加载图片：" + (err && err.message ? err.message : String(err)));
+      }
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.startsWith("image/")) {
+        const size = Number(res.headers.get("content-length")) || 0;
+        return { url, size };
+      }
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        /* 非 JSON 响应 */
+      }
+      if (data && data.ok === false) {
+        throw new Error((data && data.message) || (data && data.error) || "加载图片失败");
+      }
+      throw new Error("加载图片失败（HTTP " + res.status + "）");
     }
 
     function qs(params) {
@@ -346,6 +412,12 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
 .dsh-code-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
 .dsh-code-error{flex:1;color:var(--dsw-alias-label-error);font-size:12px;padding:12px 14px;line-height:1.6}
 .dsh-code-loading{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px}
+/* 图片预览：居中展示、可滚动、自适应缩放 */
+.dsh-code-image-wrap{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;padding:16px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-code-image-wrap::-webkit-scrollbar{width:8px;height:8px}
+.dsh-code-image-wrap::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border-radius:4px}
+.dsh-code-image{max-width:100%;max-height:calc(100% - 34px);object-fit:contain;border-radius:8px;box-shadow:var(--dsw-shadow-lv1)}
+.dsh-code-image-meta{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dsh-code-foot{flex:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2)}
 .dsh-code-selinfo{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:1;min-width:80px}
 .dsh-code-btn{font:inherit;font-size:12px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;height:28px;padding:0 10px;cursor:pointer;white-space:nowrap}
@@ -490,7 +562,8 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
 
       const mountedRef = useRef(true);
       useEffect(() => () => { mountedRef.current = false; }, []);
-      useEffect(() => () => { panelState.open = false; }, []); // 面板卸载（切会话等）时复位开关
+      // 面板卸载（切会话等）时复位开关；HeaderToggle 通过订阅保持同步
+      useEffect(() => () => { panelState.set(false); }, []);
 
       const safeSet = useCallback((fn) => {
         if (mountedRef.current) fn();
@@ -540,6 +613,15 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         });
         safeSet(() => setContentState({ status: "loading" }));
         try {
+          if (isImageName(name)) {
+            // 图片：走二进制预览接口，内容区渲染 <img>
+            const { url, size } = await loadImageUrl("/code-panel/api/image?" + qs({ root, rel }));
+            safeSet(() => {
+              setSelFile({ rel, name, lang: "image" });
+              setContentState({ status: "ok", data: { kind: "image", url, name, rel, size, lang: "image" } });
+            });
+            return;
+          }
           const data = await apiFetch("/code-panel/api/read?" + qs({ root, rel }));
           safeSet(() => {
             setSelFile({ rel, name, lang: data.lang || extOf(name) });
@@ -577,6 +659,15 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         });
         safeSet(() => setContentState({ status: "loading" }));
         try {
+          if (isImageName(item.name)) {
+            // 图片片段：走二进制预览接口
+            const { url, size } = await loadImageUrl("/code-panel/api/snippets/image?" + qs({ name: item.name }));
+            safeSet(() => {
+              setSelSnippet({ ...item, lang: "image" });
+              setContentState({ status: "ok", data: { kind: "image", url, name: item.name, rel: item.name, size, lang: "image" } });
+            });
+            return;
+          }
           const data = await apiFetch("/code-panel/api/snippets/read?" + qs({ name: item.name }));
           safeSet(() => {
             setSelSnippet({ ...item, lang: data.lang });
@@ -592,13 +683,17 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
       const activeLang = contentState.status === "ok" ? (contentState.data.lang || "text") : "text";
       const activeRel = selSnippet ? selSnippet.name : selFile ? selFile.rel : "";
       const sourceLabel = selSnippet ? "我的代码/" + selSnippet.name : selFile ? "工作区/" + selFile.rel : "";
-      const hasContent = contentState.status === "ok" && activeContent.length > 0;
+      // 图片预览模式：不能作为代码引用
+      const isImageView = contentState.status === "ok" && contentState.data.kind === "image";
+      const hasContent = contentState.status === "ok" && !isImageView && activeContent.length > 0;
 
-      // 访问会话主输入框
+      // 访问会话主输入框（input 可能是惰性 getter：conversation 服务可能晚于
+      // 面板注册就绪，不能在校验时刻固化）
       const inputShell = useCallback(() => {
         try {
-          if (!input) return null;
-          return input.shell(sessionId);
+          const resolved = typeof input === "function" ? input() : input;
+          if (!resolved) return null;
+          return resolved.shell(sessionId);
         } catch {
           return null;
         }
@@ -675,7 +770,7 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
       }, [tab, cwd, loadDir, selFile, contentState.status, onFileClick, loadSnippets]);
 
       const onClose = useCallback(() => {
-        panelState.open = false;
+        panelState.set(false);
         if (closeDetails) closeDetails();
       }, [closeDetails]);
 
@@ -731,6 +826,26 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
           return jsx("div", { className: "dsh-code-error", children: contentState.error });
         }
         if (contentState.status === "ok") {
+          if (contentState.data.kind === "image") {
+            // 图片预览：居中展示，可滚动；不参与代码选区
+            return jsxs("div", {
+              className: "dsh-code-image-wrap",
+              children: [
+                jsx("img", {
+                  className: "dsh-code-image",
+                  src: contentState.data.url,
+                  alt: contentState.data.name || "图片预览",
+                  draggable: false,
+                  onError: (e) => {
+                    // 加载失败（如文件被删）时替换为提示
+                    e.currentTarget.style.display = "none";
+                    e.currentTarget.nextSibling.textContent = "图片加载失败（文件可能已被删除）";
+                  },
+                }),
+                jsx("div", { className: "dsh-code-image-meta", children: "图片预览 · 可让 Agent 调用视觉能力查看内容" }),
+              ],
+            });
+          }
           return jsx(CodeView, {
             content: contentState.data.content,
             lang: contentState.data.lang || "text",
@@ -740,7 +855,7 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         return jsx("div", {
           className: "dsh-code-empty",
           children: tab === "workspace"
-            ? (cwd ? "在左侧选择文件查看代码；选中代码会自动进入输入框" : "当前会话没有工作区，请先新建会话并选择工作区")
+            ? (cwd ? "在左侧选择文件查看代码；选中代码后点「选到输入框」即可引用给 Agent" : "当前会话没有工作区，请先新建会话并选择工作区")
             : "选择左侧片段查看；Agent 写好的代码可保存到片段目录（data/code-panel/snippets/）",
         });
       })();
@@ -851,7 +966,7 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
                     children: [
                       jsx("span", { className: "dsh-code-filebar-name", children: sourceLabel || "未选择文件" }),
                       contentState.status === "ok"
-                        ? jsx("span", { className: "dsh-code-filebar-meta", children: fmtBytes(contentState.data.size) + " · " + (contentState.data.lang || "text") })
+                        ? jsx("span", { className: "dsh-code-filebar-meta", children: fmtBytes(contentState.data.size) + " · " + (contentState.data.lang === "image" ? "图片" : (contentState.data.lang || "text")) })
                         : null,
                     ],
                   }),
@@ -867,15 +982,19 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
                 className: "dsh-code-selinfo",
                 children: selInfo && selInfo.text.trim()
                   ? "已选中 " + selInfo.text.length + " 字符，点上方按钮加入输入框"
-                  : hasContent
-                    ? "未选中文本，点「选到输入框」将整个文件加入输入框"
-                    : "",
+                  : isImageView
+                    ? "图片预览模式：无法作为代码引用"
+                    : hasContent
+                      ? "未选中文本，点「选到输入框」将整个文件加入输入框"
+                      : "",
               }),
               jsx("button", {
                 type: "button",
                 className: "dsh-code-btn dsh-code-btn-primary",
                 disabled: !hasContent,
-                title: "把整个文件放进会话输入框（不发送，可自行补充说明）",
+                title: isImageView
+                  ? "图片无法插入输入框，理解图片内容请让 Agent 调用视觉能力"
+                  : "把整个文件放进会话输入框（不发送，可自行补充说明）",
                 onClick: () => selectToInput(""),
                 children: "选到输入框",
               }),
@@ -909,15 +1028,15 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
 
     function HeaderToggle(props) {
       const { onToggle } = props;
+      // 订阅模块级开关状态：面板 ✕ 关闭、切会话复位等都会同步到这里，
+      // 避免按钮高亮与实际面板状态不一致
       const [open, setOpen] = useState(panelState.open);
+      useEffect(() => panelState.subscribe(setOpen), []);
       return jsx("button", {
         type: "button",
         className: "dsh-code-header-btn" + (open ? " dsh-code-header-btn-on" : ""),
         title: open ? "代码面板已打开（面板右上角 ✕ 可关闭）" : "打开右侧代码面板",
-        onClick: () => {
-          onToggle();
-          setOpen(!open);
-        },
+        onClick: onToggle,
         children: [
           jsx("span", { "aria-hidden": true, children: "</>" }),
           jsx("span", { children: "代码面板" }),
@@ -938,16 +1057,17 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         priority: -1,
         inject: (sessionId) => ({
           closeDetails: () => {
-            panelState.open = false;
+            panelState.set(false);
             ctx.layout.closeDetails();
           },
-          input: (() => {
+          // 惰性 getter：conversation 服务可能晚于本插件就绪，取用时才解析
+          input: () => {
             try {
               return ctx.conversation ? ctx.conversation.input : null;
             } catch {
               return null;
             }
-          })(),
+          },
           openPath: (path) => ctx.workspaces.openPath(path),
         }),
       }, CodePanel));
@@ -959,8 +1079,9 @@ body[data-ds-dark-theme] .tok-meta{color:#9cdcfe}
         order: 30,
         inject: () => ({
           onToggle: () => {
-            panelState.open = !panelState.open;
-            if (panelState.open) ctx.layout.openDetails();
+            const next = !panelState.open;
+            panelState.set(next);
+            if (next) ctx.layout.openDetails();
             else ctx.layout.closeDetails();
           },
         }),

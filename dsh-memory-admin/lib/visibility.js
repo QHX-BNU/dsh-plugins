@@ -45,6 +45,17 @@ export function renderMemoryContext(loaded, config) {
 /** 安装自动记忆 + 对话加载钩子（随插件卸载自动移除）。 */
 export function installMemoryHooks(ctx, store, config) {
   const processedMessages = new Map(); // sessionId -> Set<messageId>：已处理过召回的 user 消息
+  // 会话可能长期存在/大量切换，跟踪表需设上限，超出时淘汰最旧会话（Map 插入序）
+  const PROCESSED_SESSION_CAP = 200;
+  const markProcessed = (sessionId, seen) => {
+    processedMessages.delete(sessionId);
+    processedMessages.set(sessionId, seen);
+    while (processedMessages.size > PROCESSED_SESSION_CAP) {
+      const oldest = processedMessages.keys().next().value;
+      if (oldest === undefined) break;
+      processedMessages.delete(oldest);
+    }
+  };
 
   // ---- 自动记忆：真实用户消息沉淀进记忆库 ----
   if (config.autoRemember) {
@@ -106,7 +117,7 @@ export function installMemoryHooks(ctx, store, config) {
       const query = newMessages.map((m) => extractText(m.content)).join('\n').trim();
       if (!query) {
         for (const m of newMessages) seen.add(m.id);
-        processedMessages.set(sessionId, seen);
+        markProcessed(sessionId, seen);
         return decision;
       }
 
@@ -123,7 +134,7 @@ export function installMemoryHooks(ctx, store, config) {
       });
 
       for (const m of newMessages) seen.add(m.id);
-      processedMessages.set(sessionId, seen);
+      markProcessed(sessionId, seen);
 
       if (loaded.length === 0) return decision;
       if (!config.injectContext) {

@@ -234,6 +234,12 @@ window.__ModuleLoader__.load({
       const [category, setCategory] = useState("");
       const [scopeFilter, setScopeFilter] = useState("");
       const [keyword, setKeyword] = useState("");
+      // 关键词输入防抖（250ms），避免每次击键都触发一次列表请求
+      const [debouncedKeyword, setDebouncedKeyword] = useState("");
+      useEffect(() => {
+        const timer = setTimeout(() => setDebouncedKeyword(keyword), 250);
+        return () => clearTimeout(timer);
+      }, [keyword]);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState("");
       const [editingId, setEditingId] = useState(null);
@@ -275,7 +281,7 @@ window.__ModuleLoader__.load({
           const params = new URLSearchParams();
           if (category) params.set("category", category);
           if (scopeFilter) params.set("scope", scopeFilter);
-          if (keyword.trim()) params.set("keyword", keyword.trim());
+          if (debouncedKeyword.trim()) params.set("keyword", debouncedKeyword.trim());
           params.set("limit", "200");
           const qs = params.toString();
           const data = await apiFetch("/memory-admin/api/list" + (qs ? "?" + qs : ""));
@@ -285,7 +291,7 @@ window.__ModuleLoader__.load({
         } finally {
           if (mountedRef.current) setBusy(false);
         }
-      }, [category, keyword, scopeFilter, reloadTick]);
+      }, [category, debouncedKeyword, scopeFilter, reloadTick]);
 
       const loadStats = useCallback(async () => {
         try {

@@ -55,7 +55,7 @@ function replaceSessionLog(session, events) {
  * 若 U 之前存在未关闭回合（turn/start 未配对），边界前移到该回合开始之前。
  * @returns 保留的最后一个事件 seq；< 0 表示无可保留内容。
  */
-function computeBoundary(events, U) {
+export function computeBoundary(events, U) {
   let boundary = U - 1;
   for (let i = boundary; i >= 0; i--) {
     const t = events[i].type;
@@ -122,7 +122,14 @@ async function rewriteSessionFile(ctx, session, events, boundary) {
     bytes = Buffer.from(body, 'utf8');
   }
   const tmp = filePath + '.retract-' + process.pid + '-' + Date.now() + '.tmp';
-  await fsp.writeFile(tmp, bytes, { flag: 'wx' });
+  // 先写临时文件并 fsync 落盘，再原子 rename 替换，避免崩溃时出现半截文件
+  const fh = await fsp.open(tmp, 'wx');
+  try {
+    await fh.writeFile(bytes);
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
   try {
     await fsp.rename(tmp, filePath);
   } catch (err) {
@@ -156,7 +163,8 @@ function resetCoordinator(ctx, session, boundary) {
 
 /**
  * 撤回：从会话中删除 seq >= U 的所有事件，返回保留的最后一个事件 seq。
- * 调用前应确保会话已停止运行（客户端负责 cancel）。
+ * 调用前应确保会话已停止运行（客户端负责 cancel）；服务端兜底检查
+ * agent 状态，仍在运行时拒绝截断，避免与进行中的写入产生竞态。
  */
 export async function retractSession(ctx, sessionId, seq) {
   const sessions = ctx.sessions;
@@ -167,6 +175,11 @@ export async function retractSession(ctx, sessionId, seq) {
   const U = Number(seq);
   if (!Number.isSafeInteger(U) || U < 0 || U >= events.length) throw new Error('无效的消息序号');
   if (events[U].type !== 'user/message') throw new Error('目标不是用户指令消息');
+
+  // 服务端兜底：Agent 仍在运行时禁止截断（会话事件流正在写入）
+  if (await isAgentRunning(ctx, String(session.id))) {
+    throw new Error('Agent 仍在运行，请先停止当前运行再撤回');
+  }
 
   const boundary = computeBoundary(events, U);
   if (boundary < 0) throw new Error('无法撤回：目标之前没有可保留的内容');
@@ -192,8 +205,20 @@ export async function retractSession(ctx, sessionId, seq) {
   return boundary;
 }
 
+/** 查询该会话对应的 agent 是否正在运行；无法确认时返回 false（不阻断）。 */
+async function isAgentRunning(ctx, sessionId) {
+  try {
+    const agents = ctx.agents;
+    if (!agents || typeof agents.get !== 'function') return false;
+    const agent = agents.get(sessionId);
+    return agent != null && agent.status === 'running';
+  } catch {
+    return false;
+  }
+}
+
 /** 注册撤回 API 路由；返回取消注册函数数组。 */
-export function installRetractApi(ctx) {
+export function installRetractApi(ctx, config) {
   let webServer;
   try {
     webServer = ctx.webServer;
@@ -210,9 +235,14 @@ export function installRetractApi(ctx) {
     disposers.push(webServer.register({ kind: 'exact', path: pathname, handler }));
   };
 
+  // 客户端读取插件配置（autoStop 等），用于决定撤回时是否先停止 Agent
+  route('/retract-prompt/api/config', async (_req, res) => {
+    sendJson(res, 200, { ok: true, autoStop: config ? config.autoStop !== false : true });
+  });
+
   route('/retract-prompt/api/retract', async (req, res) => {
     try {
-      const body = await readBody(req);
+      const body = await readBody(req, 64 * 1024);
       const boundary = await retractSession(ctx, String(body.sessionId ?? ''), body.seq);
       sendJson(res, 200, { ok: true, truncatedTo: boundary });
     } catch (err) {
@@ -232,11 +262,24 @@ function sendJson(res, code, payload) {
   res.end(body);
 }
 
-function readBody(req) {
+function readBody(req, limit = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
+    let size = 0;
+    let done = false;
+    req.on('data', (chunk) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > limit) {
+        done = true;
+        reject(new Error('请求体过大'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
+      if (done) return;
       try {
         const raw = Buffer.concat(chunks).toString('utf8');
         resolve(raw ? JSON.parse(raw) : {});

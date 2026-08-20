@@ -31,6 +31,8 @@ export const Config = z.object({
   webApi: z.boolean().default(true),
   /** 单文件预览大小上限（字节），超过则提示用编辑器打开。 */
   maxFileBytes: z.number().min(1024).max(64 * 1024 * 1024).default(1024 * 1024),
+  /** 图片预览大小上限（字节），超过则提示无法预览。 */
+  maxImageBytes: z.number().min(1024).max(256 * 1024 * 1024).default(20 * 1024 * 1024),
   /** 文件树中忽略的目录名（小写，不含路径）。 */
   excludeDirs: z.array(z.string()).default(DEFAULT_EXCLUDE_DIRS),
   /** Agent 代码片段目录（"我的代码"标签显示此目录下的文件）。 */
@@ -49,10 +51,9 @@ const SNIPPETS_README = `# Agent 代码片段目录
 
 export async function apply(ctx, config) {
   ctx.logger.info(
-    `dsh-code-panel: 激活（webApi=${config.webApi}，maxFileBytes=${config.maxFileBytes}，snippetsDir=${config.snippetsDir}）`,
+    `dsh-code-panel: 激活（webApi=${config.webApi}，maxFileBytes=${config.maxFileBytes}，maxImageBytes=${config.maxImageBytes}，snippetsDir=${config.snippetsDir}）`,
   );
 
-  const disposers = [];
   try {
     // 确保片段目录存在，并写入引导说明（首次）
     const snippetsDir = path.resolve(config.snippetsDir);
@@ -70,6 +71,7 @@ export async function apply(ctx, config) {
           const routes = installCodePanelApi(httpCtx, {
             snippetsDir,
             maxFileBytes: config.maxFileBytes,
+            maxImageBytes: config.maxImageBytes,
             excludeDirs: new Set(config.excludeDirs.map((d) => String(d).toLowerCase())),
           });
           return () => {
@@ -85,7 +87,6 @@ export async function apply(ctx, config) {
 
   ctx.effect(() => {
     return () => {
-      for (const dispose of disposers) dispose();
       ctx.logger.info('dsh-code-panel: 已卸载');
     };
   }, 'dsh-code-panel');

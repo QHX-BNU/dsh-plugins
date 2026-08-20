@@ -59,6 +59,43 @@ window.__ModuleLoader__.load({
       });
     }
 
+    // ---------------------------------------------------------------- 配置与全局 toast
+
+    /** 服务端配置（懒加载一次，失败时按默认值 autoStop=true 继续）。 */
+    let configPromise = null;
+    function getConfig() {
+      configPromise ??= fetch("/retract-prompt/api/config")
+        .then((res) => res.json())
+        .then((data) => ({ autoStop: !data || data.autoStop !== false }))
+        .catch(() => ({ autoStop: true }));
+      return configPromise;
+    }
+
+    /**
+     * 模块级 toast：挂在 document.body 上，不随消息组件卸载而消失。
+     * 撤回成功后消息节点会被重载移除，若提示状态挂在组件内部，
+     * 用户几乎看不到"已撤回"的反馈。
+     */
+    let toastNode = null;
+    let toastTimer = null;
+    function showToast(text, kind) {
+      if (typeof document === "undefined") return;
+      if (!toastNode) {
+        toastNode = document.createElement("div");
+        toastNode.className = "drp-toast";
+        document.body.appendChild(toastNode);
+      }
+      toastNode.textContent = text;
+      toastNode.className = "drp-toast" + (kind === "err" ? " drp-toast-err" : "");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        if (toastNode) {
+          toastNode.remove();
+          toastNode = null;
+        }
+      }, 5000);
+    }
+
     // ---------------------------------------------------------------- 样式
 
     const css = `
@@ -130,22 +167,8 @@ window.__ModuleLoader__.load({
       const running = useSessions((s) => !!(s && s.byId && s.byId[sessionId] && s.byId[sessionId].running));
 
       const [busy, setBusy] = useState(false);
-      const [notice, setNotice] = useState(null); // { kind: "ok"|"err", text }
-      const noticeTimer = useRef(null);
       const mountedRef = useRef(true);
       useEffect(() => () => { mountedRef.current = false; }, []);
-      useEffect(() => () => {
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-      }, []);
-
-      const flash = useCallback((kind, text) => {
-        if (!mountedRef.current) return;
-        setNotice({ kind, text });
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        noticeTimer.current = setTimeout(() => {
-          if (mountedRef.current) setNotice(null);
-        }, 5000);
-      }, []);
 
       const [copied, setCopied] = useState(false);
       const copyTimer = useRef(null);
@@ -187,21 +210,34 @@ window.__ModuleLoader__.load({
       }, [text, copied]);
 
       /**
-       * 撤回：若正在运行先停止，然后把这条指令的文本直接放回会话主输入框。
+       * 撤回：按配置决定是否先停止 Agent，然后把这条指令的文本放回主输入框，
+       * 并让服务端真正从会话中删除该消息及其后的所有事件。
        * 无弹窗 —— 用户在输入框里修改后自行发送。
        */
       const onRetract = useCallback(async () => {
         if (busy || !text || !text.trim()) return;
         setBusy(true);
         try {
-          // 1) 正在运行 → 先停止
+          const cfg = await getConfig();
+
+          // 配置为不自动停止（autoStop=false）且 Agent 正在运行时：
+          // 会话事件流仍在写入，服务端截断有竞态风险，因此只放回输入框、
+          // 不执行服务端撤回（与 README 语义一致："否则仅放回输入框"）。
+          if (running && !cfg.autoStop) {
+            const shell = inputShell(sessionId);
+            if (shell) shell.actions.setDraft(text);
+            showToast("Agent 正在运行（配置为不自动停止）：指令内容已放回输入框，请先停止运行或修改后发送", "err");
+            return;
+          }
+
+          // 1) 正在运行且配置允许 → 先停止
           if (running) {
             try {
               const conv = scopedConversation(sessionId);
               if (conv) await conv.cancel();
             } catch (err) {
               // 停止失败不阻塞撤回（服务端会按 open turn 自动前移边界）
-              flash("err", "停止运行失败：" + (err && err.message ? err.message : String(err)) + "，继续撤回…");
+              showToast("停止运行失败：" + (err && err.message ? err.message : String(err)) + "，继续撤回…", "err");
             }
             // 等 Agent 收尾事件落定，避免截断竞态
             await new Promise((r) => setTimeout(r, 400));
@@ -212,19 +248,19 @@ window.__ModuleLoader__.load({
             method: "POST",
             body: { sessionId, seq: data.seq },
           });
-          // 3) 内容放回输入框 + 提示（提示先显示，重载后消息节点消失）
+          // 3) 内容放回输入框 + 提示（全局 toast：消息节点随后会被重载移除）
           const shell = inputShell(sessionId);
           if (shell) shell.actions.setDraft(text);
-          flash("ok", "已撤回这条指令（不再参与对话），内容已放回输入框，修改后发送即可");
+          showToast("已撤回这条指令（不再参与对话），内容已放回输入框，修改后发送即可", "ok");
           // 4) 重载会话窗口（重新拉取历史，被撤回的消息消失）
           const resync = resyncSession(sessionId);
           if (resync && typeof resync.then === "function") await resync;
         } catch (err) {
-          flash("err", err && err.message ? err.message : String(err));
+          showToast(err && err.message ? err.message : String(err), "err");
         } finally {
           if (mountedRef.current) setBusy(false);
         }
-      }, [busy, running, text, data.seq, sessionId, scopedConversation, inputShell, resyncSession, flash]);
+      }, [busy, running, text, data.seq, sessionId, scopedConversation, inputShell, resyncSession]);
 
       const showBubble = text !== "" || rest.length > 0;
 
@@ -282,13 +318,6 @@ window.__ModuleLoader__.load({
               }),
             ],
           }),
-          notice
-            ? jsx("div", {
-                className: "drp-toast" + (notice.kind === "err" ? " drp-toast-err" : ""),
-                role: "status",
-                children: notice.text,
-              })
-            : null,
         ],
       });
     }

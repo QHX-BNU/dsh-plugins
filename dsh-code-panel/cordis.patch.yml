@@ -6,4 +6,5 @@
       config:
         snippetsDir: 'C:/Users/<你>/.dsh/profiles/desktop/data/code-panel/snippets'
         maxFileBytes: 1048576
+        maxImageBytes: 20971520
         webApi: true

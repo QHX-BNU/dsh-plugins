@@ -74,15 +74,21 @@ CREATE INDEX IF NOT EXISTS idx_loads_session ON memory_loads(session_id);
 CREATE INDEX IF NOT EXISTS idx_loads_memory ON memory_loads(memory_id);
 `;
 
-/** 把旧库升级到带作用域的 schema；旧记忆一律迁移为"全局"（保持迁移前到处可见的行为）。 */
+/** 把旧库升级到带作用域的 schema；旧记忆一律迁移为"全局"（保持迁移前到处可见的行为）。
+ *  逐列检查/补齐，避免中途部分迁移（如已有 scope 但缺归属列）导致后续 ALTER 报错。 */
 function migrateScopeColumns(db) {
   const cols = new Set(db.prepare('PRAGMA table_info(memories)').all().map((c) => c.name));
-  if (!cols.has('scope')) {
-    db.exec(`
-      ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'session';
-      ALTER TABLE memories ADD COLUMN workspace_id TEXT;
-      ALTER TABLE memories ADD COLUMN session_id TEXT;
-    `);
+  const hadScope = cols.has('scope');
+  if (!hadScope) {
+    db.exec(`ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'session'`);
+  }
+  if (!cols.has('workspace_id')) {
+    db.exec(`ALTER TABLE memories ADD COLUMN workspace_id TEXT`);
+  }
+  if (!cols.has('session_id')) {
+    db.exec(`ALTER TABLE memories ADD COLUMN session_id TEXT`);
+  }
+  if (!hadScope) {
     // 旧数据没有归属信息，按"全局"处理，保证迁移前可被任何会话召回的行为不丢。
     db.exec(`UPDATE memories SET scope = 'global', workspace_id = NULL, session_id = NULL`);
   }
@@ -91,6 +97,13 @@ function migrateScopeColumns(db) {
     CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(scope, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(scope, session_id);
   `);
+}
+
+/** 归一化重要度：有限数值钳制到 [0,1]，非法值用默认值兜底。 */
+function normalizeImportance(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
 }
 
 function normalizeTags(tags) {
@@ -209,7 +222,7 @@ export class MemoryStore {
     const result = stmt.run(
       content.trim(),
       category,
-      Number(importance) || 0.6,
+      normalizeImportance(importance, 0.6),
       normalizeTags(tags),
       target.scope,
       target.workspaceId ?? null,
@@ -248,7 +261,7 @@ export class MemoryStore {
     }
     if (patch.importance !== undefined) {
       fields.push('importance = ?');
-      values.push(Number(patch.importance) || 0);
+      values.push(normalizeImportance(patch.importance, 0));
     }
     if (patch.tags !== undefined) {
       fields.push('tags = ?');

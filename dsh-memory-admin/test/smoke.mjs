@@ -49,6 +49,14 @@ try {
 }
 assert(threw, '空内容抛错');
 
+// 重要度 0 必须保留（不能回退为默认 0.6），且越界值被钳制到 [0,1]
+const zeroImp = store.add({ content: '重要度为 0 的记忆', importance: 0 });
+assert(store.get(zeroImp).importance === 0, 'add 显式 importance=0 被保留');
+const clampedHigh = store.add({ content: '重要度越界', importance: 5 });
+assert(store.get(clampedHigh).importance === 1, 'add importance 越界钳制到 1');
+const clampedLow = store.update(clampedHigh, { importance: -2 });
+assert(clampedLow.importance === 0, 'update importance 越界钳制到 0');
+
 threw = false;
 try {
   store.update(id1, { category: 'bogus' });
@@ -58,7 +66,7 @@ try {
 assert(threw, '非法分类抛错');
 
 const list = store.list({ limit: 10 });
-assert(list.length === 3, `list 返回全部（${list.length}）`);
+assert(list.length === 5, `list 返回全部（${list.length}）`);
 const filtered = store.list({ category: 'self' });
 assert(filtered.length === 1 && filtered[0].id === id1, 'list 按分类过滤');
 const kw = store.list({ keyword: '记忆插件' });
@@ -84,7 +92,7 @@ const loaded = store.loadedForSession('session-abc');
 assert(loaded.length === 2, `loadedForSession 返回 2 条（${loaded.length}）`);
 assert(loaded[0].memoryId === id2, '按时间倒序（最新在前）');
 const stats = store.stats();
-assert(stats.total === 3, 'stats 总数正确');
+assert(stats.total === 5, 'stats 总数正确');
 assert(stats.byCategory['self'] === 1, 'stats 分类计数正确');
 assert(stats.recentLoads.length === 3, 'stats 最近加载记录正确');
 assert(stats.topLoaded[0].memoryId === id1 && stats.topLoaded[0].count === 2, 'stats 最常加载正确');
