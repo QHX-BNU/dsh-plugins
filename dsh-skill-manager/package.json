@@ -1,0 +1,39 @@
+{
+  "name": "dsh-skill-manager",
+  "version": "0.1.0",
+  "description": "DSH Skill 管理插件：侧边栏管理入口（下载/启用/禁用/删除 skills），对话输入框输入 @ 弹出 skills 选择器并支持搜索",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "skill",
+    "skills",
+    "skill-manager",
+    "技能管理"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+  }
+}

@@ -1,0 +1,10 @@
+# dsh-skill-manager —— profile 启用配置示例
+# 把下面内容追加到 profile 目录（如 C:\Users\<你>\.dsh\profiles\desktop）的 cordis.patch.yml
+- insert:
+    - id: dsh-skill-manager
+      name: 'dsh-skill-manager'
+      config:
+        skillsDir: 'C:/Users/<你>/.dsh/skills'
+        statePath: 'C:/Users/<你>/.dsh/profiles/desktop/data/skill-manager.json'
+        githubToken: ''
+        webApi: true

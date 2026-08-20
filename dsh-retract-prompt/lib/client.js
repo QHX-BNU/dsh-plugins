@@ -59,6 +59,27 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /**
+     * 撤回放回的草稿不跨重启持久化。
+     * DSH 的输入框草稿会写入 localStorage（key: dsh.conversation.chat），
+     * 重启桌面端后输入框会恢复旧草稿 —— 用户不知情直接发送，就会把"上一条"
+     * （撤回的指令）发出去。这里在撤回放回后，把与"放回内容完全一致"的
+     * 持久化草稿清空（用户后续编辑过则不动，保留用户自己的输入）。
+     */
+    function clearPersistedRetractDraft(placedText) {
+      try {
+        const raw = localStorage.getItem("dsh.conversation.chat");
+        if (!raw) return;
+        const state = JSON.parse(raw);
+        if (state && typeof state === "object" && state.draft === placedText) {
+          state.draft = "";
+          localStorage.setItem("dsh.conversation.chat", JSON.stringify(state));
+        }
+      } catch {
+        /* 持久化清理失败不影响撤回 */
+      }
+    }
+
     // ---------------------------------------------------------------- 配置与全局 toast
 
     /** 服务端配置（懒加载一次，失败时按默认值 autoStop=true 继续）。 */
@@ -225,7 +246,14 @@ window.__ModuleLoader__.load({
           // 不执行服务端撤回（与 README 语义一致："否则仅放回输入框"）。
           if (running && !cfg.autoStop) {
             const shell = inputShell(sessionId);
-            if (shell) shell.actions.setDraft(text);
+            if (shell) {
+              const current = (shell.snapshot && shell.snapshot.draft) || "";
+              const next = current && current.trim()
+                ? current.replace(/\s+$/, "") + "\n\n" + text
+                : text;
+              shell.actions.setDraft(next);
+              clearPersistedRetractDraft(next);
+            }
             showToast("Agent 正在运行（配置为不自动停止）：指令内容已放回输入框，请先停止运行或修改后发送", "err");
             return;
           }
@@ -248,9 +276,18 @@ window.__ModuleLoader__.load({
             method: "POST",
             body: { sessionId, seq: data.seq },
           });
-          // 3) 内容放回输入框 + 提示（全局 toast：消息节点随后会被重载移除）
+          // 3) 内容放回输入框（已有草稿则追加在末尾，不覆盖用户的输入）
+          //    + 提示（全局 toast：消息节点随后会被重载移除）
           const shell = inputShell(sessionId);
-          if (shell) shell.actions.setDraft(text);
+          if (shell) {
+            const current = (shell.snapshot && shell.snapshot.draft) || "";
+            const next = current && current.trim()
+              ? current.replace(/\s+$/, "") + "\n\n" + text
+              : text;
+            shell.actions.setDraft(next);
+            // 撤回放回的草稿不跨重启持久化：重启后输入框为空，避免误发"上一条"
+            clearPersistedRetractDraft(next);
+          }
           showToast("已撤回这条指令（不再参与对话），内容已放回输入框，修改后发送即可", "ok");
           // 4) 重载会话窗口（重新拉取历史，被撤回的消息消失）
           const resync = resyncSession(sessionId);

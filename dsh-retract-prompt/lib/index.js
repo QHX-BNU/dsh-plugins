@@ -25,9 +25,8 @@ export const Config = z.object({
 export async function apply(ctx, config) {
   ctx.logger.info(`dsh-retract-prompt: 已激活（autoStop=${config.autoStop}）`);
   // 显式声明所有依赖服务：webServer（可能晚就绪）+ sessions + sessionPersistence
-  // + agents（用于服务端兜底检查运行状态）
   // （cordis 要求先 inject 才能访问 ctx 服务，否则报 “cannot get property ... without inject”）
-  ctx.inject(['webServer', 'sessions', 'sessionPersistence', 'agents'], (httpCtx) => {
+  ctx.inject(['webServer', 'sessions', 'sessionPersistence'], (httpCtx) => {
     httpCtx.effect(() => {
       const routes = installRetractApi(httpCtx, config);
       ctx.logger.info(`dsh-retract-prompt: 撤回 API 已注册（${routes.length} 条路由）`);

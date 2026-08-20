@@ -9,6 +9,8 @@
 | [dsh-code-panel](./dsh-code-panel) | 0.1.0 | 右侧代码面板：浏览工作区代码与 Agent 代码片段，选中代码即可作为引用直接发给 Agent 解释 |
 | [dsh-memory-admin](./dsh-memory-admin) | 0.1.0 | 记忆管理：直接修改记忆模块内容 + 对话中直接看到加载了哪些记忆模块（零外部依赖，`node:sqlite`） |
 | [dsh-retract-prompt](./dsh-retract-prompt) | 0.1.0 | 撤回指令：停止当前运行并把最后一条用户指令放回编辑器重新编辑，修改后再发送，避免错误指令被继续误执行 |
+| [dsh-scheduled-tasks](./dsh-scheduled-tasks) | 0.1.0 | 定时任务：设置任务执行时间（一次性/每天/每周/间隔）与内容，到点自动向会话发消息唤醒 Agent 或执行系统命令 |
+| [dsh-skill-manager](./dsh-skill-manager) | 0.1.0 | Skill 管理：侧边栏管理入口（下载/启用/禁用/删除 skills），对话输入框输入 @ 弹出 skills 选择器并支持搜索 |
 
 ## 安装
 

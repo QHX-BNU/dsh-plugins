@@ -150,6 +150,7 @@ console.log('== retractSession 端到端 ==');
   // 后续 append 的 seq 应该从 4 继续（与文件一致）
   session.log.push(ev('turn/start', 4, { turn: 3 }));
   session.log.push(ev('user/message', 5, { content: [{ type: 'text', text: '新指令' }] }));
+  session.log.push(ev('turn/end', 6, { turn: 3 }));
   const appended = await retractSession(ctx, 'test-session', 5);
   assert(appended === 3, '对新消息再次撤回成功');
   const lines2 = await readFileLines(filePath);
@@ -174,10 +175,11 @@ console.log('== 守卫与错误路径 ==');
   const events = buildEvents();
   await fsp.writeFile(filePath, 'HEADER\n' + events.map((e) => JSON.stringify(e)).join('\n') + '\n');
 
-  // Agent 正在运行 → 拒绝
+  // Agent 正在运行（事件流尾部存在未关闭回合）→ 拒绝
   {
-    const session = makeSession(events);
-    const { ctx } = makeCtx(session, filePath, { agentStatus: 'running' });
+    const runningEvents = [...events, ev('turn/start', 9, { turn: 3 })];
+    const session = makeSession(runningEvents);
+    const { ctx } = makeCtx(session, filePath);
     let threw = null;
     try {
       await retractSession(ctx, 'test-session', 5);
@@ -185,7 +187,7 @@ console.log('== 守卫与错误路径 ==');
       threw = err.message;
     }
     assert(threw !== null && threw.includes('仍在运行'), `运行中撤回被拒绝（${threw}）`);
-    assert(session.log.length === events.length, '被拒绝时内存未截断');
+    assert(session.log.length === runningEvents.length, '被拒绝时内存未截断');
   }
 
   // 目标不是用户指令 → 拒绝

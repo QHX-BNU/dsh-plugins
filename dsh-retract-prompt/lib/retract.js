@@ -164,7 +164,8 @@ function resetCoordinator(ctx, session, boundary) {
 /**
  * 撤回：从会话中删除 seq >= U 的所有事件，返回保留的最后一个事件 seq。
  * 调用前应确保会话已停止运行（客户端负责 cancel）；服务端兜底检查
- * agent 状态，仍在运行时拒绝截断，避免与进行中的写入产生竞态。
+ * 事件流尾部：Agent 正在运行时最后一个 turn 边界必然是 turn/start
+ * （turn/end 尚未写入），此时截断会与进行中的写入竞态，拒绝执行。
  */
 export async function retractSession(ctx, sessionId, seq) {
   const sessions = ctx.sessions;
@@ -176,8 +177,8 @@ export async function retractSession(ctx, sessionId, seq) {
   if (!Number.isSafeInteger(U) || U < 0 || U >= events.length) throw new Error('无效的消息序号');
   if (events[U].type !== 'user/message') throw new Error('目标不是用户指令消息');
 
-  // 服务端兜底：Agent 仍在运行时禁止截断（会话事件流正在写入）
-  if (await isAgentRunning(ctx, String(session.id))) {
+  // 服务端兜底：事件流尾部存在未关闭回合 → Agent 仍在运行，禁止截断
+  if (hasOpenTurn(events)) {
     throw new Error('Agent 仍在运行，请先停止当前运行再撤回');
   }
 
@@ -205,16 +206,16 @@ export async function retractSession(ctx, sessionId, seq) {
   return boundary;
 }
 
-/** 查询该会话对应的 agent 是否正在运行；无法确认时返回 false（不阻断）。 */
-async function isAgentRunning(ctx, sessionId) {
-  try {
-    const agents = ctx.agents;
-    if (!agents || typeof agents.get !== 'function') return false;
-    const agent = agents.get(sessionId);
-    return agent != null && agent.status === 'running';
-  } catch {
-    return false;
+/**
+ * 事件流尾部是否存在未关闭回合（最后一个 turn 边界是 turn/start）。
+ * Agent 正常静止时，最后一个 turn 边界必为 turn/end。
+ */
+export function hasOpenTurn(events) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const t = events[i].type;
+    if (t === 'turn/start' || t === 'turn/end') return t === 'turn/start';
   }
+  return false;
 }
 
 /** 注册撤回 API 路由；返回取消注册函数数组。 */
