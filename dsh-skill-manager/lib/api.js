@@ -13,8 +13,9 @@
  *   POST /skill-manager/api/remove       {name}              删除
  *   POST /skill-manager/api/refresh      {name}              按记录来源重新安装
  */
-import { scanSkillsDir, setSkillEnabled, removeSkill, writeBundleSkill, writeBundleFiles, parseSkillText, SKILL_NAME_RE } from './fs-store.js';
+import { scanSkillsDir, setSkillEnabled, removeSkill, writeBundleSkill, writeBundleFiles, importLocalSkill, parseSkillText, SKILL_NAME_RE } from './fs-store.js';
 import { scanRepoSkills, fetchRaw, downloadSkillBundle, defaultBranch, REPO_RE } from './market.js';
+import { publishSkillToGitHub } from './publish.js';
 
 const MAX_BODY_BYTES = 512 * 1024;
 
@@ -158,6 +159,56 @@ export function installSkillsApi(ctx, opts) {
         path: target,
         files: files ? files.length : 1,
       });
+    } catch (err) {
+      sendJson(res, 200, { ok: false, error: err && err.message ? err.message : String(err) });
+    }
+  });
+
+  route('/skill-manager/api/import-local', async (req, res) => {
+    try {
+      const body = await parseJsonBody(req);
+      const path = String(body.path || '').trim();
+      if (!path) throw new Error('缺少本地路径');
+      const result = await importLocalSkill(skillsDir, path, logger);
+      state.set(result.name, {
+        source: 'local',
+        localPath: path,
+        installedAt: Date.now(),
+        files: result.files,
+      });
+      await state.persist();
+      logger.info?.(`dsh-skill-manager: 已从本地导入 skill "${result.name}"（${path}，${result.files} 个文件）`);
+      sendJson(res, 200, {
+        ok: true,
+        name: result.name,
+        description: result.description,
+        files: result.files,
+        skipped: result.skipped,
+        path: result.dir,
+      });
+    } catch (err) {
+      sendJson(res, 200, { ok: false, error: err && err.message ? err.message : String(err) });
+    }
+  });
+
+  route('/skill-manager/api/publish', async (req, res) => {
+    try {
+      const body = await parseJsonBody(req);
+      const name = String(body.name || '').trim();
+      const repo = String(body.repo || '').trim();
+      const dir = String(body.dir || '').trim();
+      const result = await publishSkillToGitHub({ skillsDir, name, repo, dir });
+      // 发布成功后把来源记录为仓库（之后可一键刷新）
+      state.set(name, {
+        repo,
+        skillPath: (dir ? dir.replace(/^\/+|\/+$/g, '') + '/' : '') + name + '/SKILL.md',
+        branch: result.branch,
+        installedAt: Date.now(),
+        files: result.files,
+      });
+      await state.persist();
+      logger.info?.(`dsh-skill-manager: 已发布 skill "${name}" → ${repo}（${result.files} 个文件）`);
+      sendJson(res, 200, { ok: true, name, ...result });
     } catch (err) {
       sendJson(res, 200, { ok: false, error: err && err.message ? err.message : String(err) });
     }

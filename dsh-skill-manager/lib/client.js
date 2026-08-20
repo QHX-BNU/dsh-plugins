@@ -125,6 +125,11 @@ window.__ModuleLoader__.load({
 [data-decoration="text-ref"]{
   background:#6187d838;border-radius:6px;padding:0 6px;margin:0 -6px;
 }
+.dsh-sm-form{display:flex;flex-direction:column;gap:8px;background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:12px}
+.dsh-sm-form .dsh-sm-repo{width:100%}
+.dsh-sm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dsh-sm-row input{flex:1;min-width:180px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:32px;font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;outline:none}
+.dsh-sm-row input:focus-visible{border-color:var(--dsw-alias-brand-primary)}
 `;
 
     function ensureCss() {
@@ -178,9 +183,20 @@ window.__ModuleLoader__.load({
 
     /** 已安装列表卡片（managed：位于 <dshHome>/skills，可管理；system：其他来源只读） */
     function SkillCard(props) {
-      const { item, installed, onToggle, onRemove, onRefresh, confirmRemove, busy } = props;
+      const { item, installed, onToggle, onRemove, onRefresh, onPublish, confirmRemove, busy } = props;
+      const [showPub, setShowPub] = useState(false);
+      const [pubRepo, setPubRepo] = useState("");
+      const [pubDir, setPubDir] = useState("");
       const record = installed && installed[item.name] ? installed[item.name] : null;
       const sys = item.system;
+      const doPublish = async () => {
+        const ok = await onPublish({ repo: pubRepo.trim(), dir: pubDir.trim() });
+        if (ok) {
+          setShowPub(false);
+          setPubRepo("");
+          setPubDir("");
+        }
+      };
       return jsxs("div", { className: "dsh-sm-card", children: [
         jsxs("div", { className: "dsh-sm-card-head", children: [
           jsx("span", { className: "dsh-sm-name", children: item.name }),
@@ -217,6 +233,12 @@ window.__ModuleLoader__.load({
               : jsxs("span", { className: "dsh-sm-actions", children: [
                   record ? jsx("button", { className: "dsh-sm-btn", disabled: busy, onClick: onRefresh, children: "刷新" }) : null,
                   jsx("button", {
+                    className: "dsh-sm-btn",
+                    disabled: busy,
+                    onClick: () => setShowPub(!showPub),
+                    children: "发布",
+                  }),
+                  jsx("button", {
                     className: "dsh-sm-btn" + (item.enabled ? "" : " dsh-sm-btn-primary"),
                     disabled: busy,
                     onClick: onToggle,
@@ -225,6 +247,27 @@ window.__ModuleLoader__.load({
                   jsx("button", { className: "dsh-sm-btn dsh-sm-btn-danger", disabled: busy, onClick: onRemove, children: "删除" }),
                 ] }),
         ] }),
+        showPub && !sys
+          ? jsxs("div", { className: "dsh-sm-form", children: [
+              jsx("div", { className: "dsh-sm-hint", children: "发布到 GitHub：把「" + item.name + "」推送到目标仓库（使用本机已认证的 gh，文件将放到 " + (pubDir ? pubDir + "/" : "") + item.name + "/ 下）" }),
+              jsxs("div", { className: "dsh-sm-row", children: [
+                jsx("input", {
+                  value: pubRepo,
+                  onChange: (e) => setPubRepo(e.target.value),
+                  placeholder: "目标仓库 owner/repo（如 QHX-BNU/dsh-skills）",
+                }),
+                jsx("input", {
+                  value: pubDir,
+                  onChange: (e) => setPubDir(e.target.value),
+                  placeholder: "子目录（可选，如 skills）",
+                }),
+              ] }),
+              jsxs("div", { className: "dsh-sm-actions", children: [
+                jsx("button", { className: "dsh-sm-btn dsh-sm-btn-primary", disabled: busy || !pubRepo.trim(), onClick: doPublish, children: busy ? "发布中…" : "发布" }),
+                jsx("button", { className: "dsh-sm-btn", disabled: busy, onClick: () => setShowPub(false), children: "取消" }),
+              ] }),
+            ] })
+          : null,
       ] });
     }
 
@@ -233,6 +276,8 @@ window.__ModuleLoader__.load({
       const { data, busy, onAction } = props;
       const [query, setQuery] = useState("");
       const [confirmName, setConfirmName] = useState(null);
+      const [showImport, setShowImport] = useState(false);
+      const [importPath, setImportPath] = useState("");
       const managed = data && Array.isArray(data.managed) ? data.managed : [];
       const sessionSkills = data && Array.isArray(data.sessionSkills) ? data.sessionSkills : [];
       const installed = (data && data.installed) || {};
@@ -252,6 +297,14 @@ window.__ModuleLoader__.load({
       const enabledCount = managed.filter((m) => m.enabled && !m.parseError).length;
       const disabledCount = managed.filter((m) => !m.enabled && !m.parseError).length;
 
+      const doImport = async () => {
+        const ok = await onAction("import-local", { path: importPath.trim() });
+        if (ok) {
+          setShowImport(false);
+          setImportPath("");
+        }
+      };
+
       return jsxs(Fragment, { children: [
         jsxs("div", { className: "dsh-sm-toolbar", children: [
           jsxs("div", { className: "dsh-sm-search", children: [
@@ -262,6 +315,12 @@ window.__ModuleLoader__.load({
               placeholder: "搜索已安装的 skills…",
             }),
           ] }),
+          jsx("button", {
+            className: "dsh-sm-btn",
+            disabled: busy,
+            onClick: () => setShowImport(!showImport),
+            children: "导入本地",
+          }),
           jsxs("span", { className: "dsh-sm-stats", children: [
             jsx("span", { className: "dsh-sm-chip", children: "本地 " + managed.length + " 个" }),
             jsx("span", { className: "dsh-sm-chip dsh-sm-chip-on", children: "启用 " + enabledCount }),
@@ -269,6 +328,21 @@ window.__ModuleLoader__.load({
             jsx("span", { className: "dsh-sm-chip dsh-sm-chip-sys", children: "系统 " + system.length }),
           ] }),
         ] }),
+        showImport
+          ? jsxs("div", { className: "dsh-sm-form", children: [
+              jsx("div", { className: "dsh-sm-hint", children: "从本地导入技能：填写技能目录（含 SKILL.md）或单个 .md 文件的路径，校验通过后复制安装到 " + (data ? data.skillsDir : "本地 skills 目录") + "（源文件保持不变）。" }),
+              jsxs("div", { className: "dsh-sm-row", children: [
+                jsx("input", {
+                  value: importPath,
+                  onChange: (e) => setImportPath(e.target.value),
+                  onKeyDown: (e) => { if (e.key === "Enter") doImport(); },
+                  placeholder: "如 D:\\work\\my-skill 或 D:\\work\\my-skill.md",
+                }),
+                jsx("button", { className: "dsh-sm-btn dsh-sm-btn-primary", disabled: busy || !importPath.trim(), onClick: doImport, children: busy ? "导入中…" : "导入" }),
+                jsx("button", { className: "dsh-sm-btn", disabled: busy, onClick: () => setShowImport(false), children: "取消" }),
+              ] }),
+            ] })
+          : null,
         jsx("div", { className: "dsh-sm-hint", children: "本地 skills 位于 " + (data ? data.skillsDir : "") + "，改动即时生效。" }),
         jsx("div", {
           className: "dsh-sm-list",
@@ -290,6 +364,7 @@ window.__ModuleLoader__.load({
                   }
                 },
                 onRefresh: () => onAction("refresh", item),
+                onPublish: (payload) => onAction("publish", { ...item, ...payload }),
               })),
         }),
       ] });
@@ -433,11 +508,19 @@ window.__ModuleLoader__.load({
           } else if (kind === "import") {
             result = await apiFetch("/skill-manager/api/import", { method: "POST", body: { repo: item.repo, skillPath: item.skillPath } });
             setNotice("已安装 skill「" + result.name + "」（默认启用）");
+          } else if (kind === "import-local") {
+            result = await apiFetch("/skill-manager/api/import-local", { method: "POST", body: { path: item.path } });
+            setNotice("已从本地导入 skill「" + result.name + "」（" + result.files + " 个文件" + (result.skipped && result.skipped.length ? "，跳过二进制 " + result.skipped.length + " 个" : "") + "）");
+          } else if (kind === "publish") {
+            result = await apiFetch("/skill-manager/api/publish", { method: "POST", body: { name: item.name, repo: item.repo, dir: item.dir || "" } });
+            setNotice("已发布 skill「" + result.name + "」（" + result.files + " 个文件）→ " + result.url);
           }
           await load();
           if (props.onCatalogChanged) props.onCatalogChanged();
+          return true;
         } catch (err) {
           setError(err && err.message ? err.message : String(err));
+          return false;
         } finally {
           setBusy(false);
         }
@@ -605,6 +688,60 @@ window.__ModuleLoader__.load({
         return data;
       }
 
+      // ---------------------------------------------------------------- @ Agent 模板（Agent 工厂）
+
+      /** Agent 工厂模板缓存：5 秒 TTL；null = 服务不可用（dsh-agent-factory 未安装）。 */
+      const agentFetches = { promise: null, at: 0, agents: null };
+      const agentLexiconListeners = new Map();
+      const notifyAgentLexicon = (sessionId) => {
+        for (const listener of [...(agentLexiconListeners.get(sessionId) || [])]) {
+          try { listener(); } catch (err) { console.error("[skill-manager] agent lexicon listener failed:", err); }
+        }
+      };
+      const notifyAgentLexiconAll = () => {
+        for (const key of [...agentLexiconListeners.keys()]) notifyAgentLexicon(key);
+      };
+      /** 拉取 Agent 工厂模板列表（null=服务不可用，[]=可用但为空）。 */
+      async function fetchAgentTemplates(signal) {
+        if (agentFetches.agents && Date.now() - agentFetches.at < 5000) return agentFetches.agents;
+        if (agentFetches.promise) {
+          try {
+            return await agentFetches.promise;
+          } catch {
+            return null;
+          }
+        }
+        const p = (async () => {
+          let res;
+          try {
+            res = await fetch("/agent-factory/api/list", { signal });
+          } catch (err) {
+            if (err && err.name === "AbortError") throw err;
+            return null;
+          }
+          let data = {};
+          try {
+            data = await res.json();
+          } catch {
+            /* 非 JSON 响应 */
+          }
+          if (!res.ok || data.ok === false) return null;
+          return Array.isArray(data.agents) ? data.agents : [];
+        })();
+        agentFetches.promise = p;
+        try {
+          const agents = await p;
+          if (agents !== null) {
+            agentFetches.agents = agents;
+            agentFetches.at = Date.now();
+            notifyAgentLexiconAll();
+          }
+          return agents;
+        } finally {
+          agentFetches.promise = null;
+        }
+      }
+
       /** 文件条目的图标（与代码面板的扩展名图标风格一致）。 */
       const FILE_ICONS = {
         js: "🟨", mjs: "🟨", cjs: "🟨", jsx: "🟨", ts: "🟦", tsx: "🟦",
@@ -712,11 +849,12 @@ window.__ModuleLoader__.load({
           const items = [
             { name: "技能", description: "从已安装的 skills 中选择并引用", icon: "⚡", category: "skill" },
             { name: "工作区文件", description: "引用当前工作区的文件", icon: "📁", category: "工作区文件" },
+            { name: "Agent 模板", description: "从 Agent 工厂选择可复用的 subagent 模板", icon: "🤖", category: "agent-template" },
           ];
           if (!q) return items;
           const hit = items.filter((i) => i.name.toLowerCase().includes(q));
           if (hit.length === 0) {
-            return [{ name: "无匹配：\u201C" + query + "\u201D", description: "可选「技能」或「工作区文件」", noMatch: true }];
+            return [{ name: "无匹配：\u201C" + query + "\u201D", description: "可选「技能」「工作区文件」或「Agent 模板」", noMatch: true }];
           }
           return hit;
         },
@@ -800,6 +938,84 @@ window.__ModuleLoader__.load({
         codec: {
           clipboardText: (ref) => ref,
           serialize: (ref) => Promise.resolve("@" + ref),
+        },
+      };
+
+      // @ Agent 模板选择源（第二级）：阶段为「agent-template」时展示 Agent 工厂
+      // 的可复用 subagent 模板（依赖 dsh-agent-factory 的 /agent-factory/api/list，
+      // 未安装时显示提示占位）。选中后插入真实文本 `@模板id `（与宿主子智能体
+      // 引用 @name 的惯例一致）：输入框内经宿主 text-ref 扫描 + 本源的 lexicon
+      // 词表装饰为带背景的引用样式；发送后主 Agent 依据系统提示中的说明，用
+      // agent_run（agent=模板id）调用对应模板执行任务。
+      const agentSource = {
+        trigger: "@",
+        name: "agent-template",
+        order: 25,
+        async candidates(session, { query, signal }) {
+          if (stageOf(session.sessionId) !== "agent-template") return [];
+          let agents = null;
+          try {
+            agents = await fetchAgentTemplates(signal);
+          } catch (err) {
+            if (err && err.name === "AbortError") return [];
+            console.error("[skill-manager] @ Agent 模板获取失败:", err && err.message ? err.message : String(err));
+            return [];
+          }
+          if (agents === null) {
+            return [{ name: "未安装 Agent 工厂（dsh-agent-factory）", description: "安装后才能在 @ 菜单选择可复用的 subagent 模板", noMatch: true }];
+          }
+          if (signal && signal.aborted) return [];
+          const q = (query || "").toLowerCase();
+          if (agents.length === 0) {
+            return [{ name: "没有可用的 Agent 模板", description: "到「Agent 工厂」面板新建模板", noMatch: true }];
+          }
+          const toItem = (a) => ({
+            name: a.name,
+            description: (a.id + " · " + (a.provider || "继承调用方") + (a.model ? "/" + a.model : "") + (a.description ? " · " + a.description : "")),
+            icon: "🤖",
+            agent: a,
+          });
+          if (!q) {
+            return agents.map(toItem);
+          }
+          const prefix = [];
+          const rest = [];
+          for (const a of agents) {
+            const hay = (a.id + " " + a.name + " " + (a.description || "") + " " + (a.provider || "") + " " + (a.model || "")).toLowerCase();
+            if (hay.startsWith(q)) prefix.push(a);
+            else if (hay.includes(q)) rest.push(a);
+          }
+          if (prefix.length === 0 && rest.length === 0) {
+            // 无匹配占位：让用户知道搜索已生效（onPick 空操作）
+            return [{ name: "无匹配：\u201C" + query + "\u201D", description: "试试模板名称、id、描述或模型关键词", noMatch: true }];
+          }
+          return [...prefix, ...rest].slice(0, 100).map(toItem);
+        },
+        warm(session) {
+          fetchAgentTemplates().catch(() => {});
+        },
+        lexicon() {
+          // 提供模板 id + 名称词表，宿主 text-ref 扫描把输入框里的 @模板id/@模板名
+          // 装饰为带背景的引用样式（与 /skill-name 同机制）
+          return agentFetches.agents
+            ? agentFetches.agents.map((a) => a.id).concat(agentFetches.agents.map((a) => a.name))
+            : void 0;
+        },
+        subscribeLexicon(session, listener) {
+          const key = session.sessionId;
+          const listeners = agentLexiconListeners.get(key) || new Set();
+          listeners.add(listener);
+          agentLexiconListeners.set(key, listeners);
+          return () => {
+            listeners.delete(listener);
+            if (listeners.size === 0) agentLexiconListeners.delete(key);
+          };
+        },
+        onPick({ candidate }) {
+          if (!candidate || candidate.noMatch || !candidate.agent) return void 0;
+          // 纯文本插入 `@模板id `：真实文本，光标可自由移动/编辑；发送后
+          // 主 Agent 看到 @id 即按系统提示用 agent_run 调用该模板。
+          return { text: "@" + candidate.agent.id + " " };
         },
       };
 
@@ -908,6 +1124,7 @@ window.__ModuleLoader__.load({
           inputTriggers.registerSource(routerSource),
           inputTriggers.registerSource(source),
           inputTriggers.registerSource(fileSource),
+          inputTriggers.registerSource(agentSource),
           inputTriggers.registerSource(skillRefLexiconSource),
         ];
         return () => {
@@ -930,6 +1147,7 @@ window.__ModuleLoader__.load({
 
       ctx.on("connection/reset", () => {
         clearAll();
+        agentFetches.agents = null; // Agent 模板缓存显式失效
         stages.clear();
         pendingCat.clear();
       });

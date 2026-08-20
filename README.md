@@ -11,6 +11,7 @@
 | [dsh-retract-prompt](./dsh-retract-prompt) | 0.1.0 | 撤回指令：停止当前运行并把最后一条用户指令放回编辑器重新编辑，修改后再发送，避免错误指令被继续误执行 |
 | [dsh-scheduled-tasks](./dsh-scheduled-tasks) | 0.1.0 | 定时任务：设置任务执行时间（一次性/每天/每周/间隔）与内容，到点自动向会话发消息唤醒 Agent 或执行系统命令 |
 | [dsh-skill-manager](./dsh-skill-manager) | 0.1.0 | Skill 管理：侧边栏管理入口（下载/启用/禁用/删除 skills），对话输入框输入 @ 弹出 skills 选择器并支持搜索 |
+| [dsh-agent-factory](./dsh-agent-factory) | 0.1.0 | Agent 工厂：可复用的 subagent 模板库（指定子智能体做任务，模板可编辑——含模型供应商/模型名等，可复用；侧边栏管理面板 + agent_list/agent_save/agent_run/agent_delete 四个工具） |
 
 ## 安装
 

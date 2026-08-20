@@ -14,12 +14,16 @@
  *     改名的文件不再匹配官方发现规则，catalog 中即消失。
  */
 import { readdir, readFile, writeFile, rename, rm, mkdir, stat } from 'node:fs/promises';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, relative } from 'node:path';
 import { homedir } from 'node:os';
 
 export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const BUNDLE_FILE = 'SKILL.md';
 const DISABLED_SUFFIX = '.disabled';
+
+const MAX_LOCAL_FILES = 500;
+const MAX_LOCAL_BYTES = 30 * 1024 * 1024;
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** 默认 skills 根目录：DSH_HOME/skills，兜底 ~/.dsh/skills */
 export function defaultSkillsDir() {
@@ -342,4 +346,84 @@ export async function writeBundleFiles(skillsDir, name, files) {
     await writeFile(target, file.content, 'utf8');
   }
   return dir;
+}
+
+/**
+ * 递归收集技能目录下的全部文本文件（含子目录，保持相对路径）。
+ * 二进制文件（无法按 UTF-8 解码）会被跳过并记录到 skipped。
+ * @returns {Promise<{files: Array<{rel, content}>, skipped: string[]}>}
+ */
+export async function collectSkillFiles(skillDir) {
+  const files = [];
+  const skipped = [];
+  let total = 0;
+  const walk = async (dir) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (files.length >= MAX_LOCAL_FILES) throw new Error(`技能文件过多（超过 ${MAX_LOCAL_FILES} 个）`);
+      const buf = await readFile(full);
+      total += buf.length;
+      if (total > MAX_LOCAL_BYTES) throw new Error(`技能总大小超过 ${MAX_LOCAL_BYTES / 1024 / 1024}MB 上限`);
+      let content;
+      try {
+        content = utf8Decoder.decode(buf);
+      } catch {
+        skipped.push(relative(skillDir, full).replace(/\\/g, '/'));
+        continue;
+      }
+      files.push({ rel: relative(skillDir, full).replace(/\\/g, '/'), content });
+    }
+  };
+  await walk(skillDir);
+  return { files, skipped };
+}
+
+/**
+ * 从本地路径导入技能（目录 bundle 或单个 .md 文件），复制到 skillsDir。
+ * 校验 frontmatter 合法后写入 <skillsDir>/<name>/；源文件保持不变。
+ * @returns {Promise<{name: string, description: string, files: number, skipped: string[], dir: string}>}
+ */
+export async function importLocalSkill(skillsDir, sourcePath, logger) {
+  let info;
+  try {
+    info = await stat(sourcePath);
+  } catch {
+    throw new Error(`路径不存在：${sourcePath}`);
+  }
+  let files;
+  let skipped = [];
+  let skillMdRel = null;
+  if (info.isDirectory()) {
+    ({ files, skipped } = await collectSkillFiles(sourcePath));
+    skillMdRel = files.find((f) => f.rel === 'SKILL.md') || null;
+  } else if (info.isFile() && sourcePath.endsWith('.md')) {
+    const buf = await readFile(sourcePath);
+    let content;
+    try {
+      content = utf8Decoder.decode(buf);
+    } catch {
+      throw new Error('文件不是有效的 UTF-8 文本');
+    }
+    // 统一以目录 bundle 形式存储：rel 固定为 SKILL.md
+    files = [{ rel: 'SKILL.md', content }];
+    skillMdRel = files[0];
+  } else {
+    throw new Error('只支持技能目录（含 SKILL.md）或单个 .md 文件');
+  }
+  if (!skillMdRel) {
+    // 扁平单文件：直接以文件名解析
+    const flat = files.find((f) => f.rel.endsWith('.md') && !f.rel.includes('/'));
+    skillMdRel = flat || null;
+  }
+  if (!skillMdRel) throw new Error('未找到 SKILL.md（或同级的 <name>.md），无法导入');
+  const parsed = parseSkillText(skillMdRel.content, logger, sourcePath);
+  if (!parsed) throw new Error('SKILL.md frontmatter 缺少合法的 name/description');
+  const dir = await writeBundleFiles(skillsDir, parsed.name, files);
+  return { name: parsed.name, description: parsed.description, files: files.length, skipped, dir };
 }

@@ -14,6 +14,7 @@ import {
   setSkillEnabled,
   removeSkill,
   writeBundleSkill,
+  importLocalSkill,
   SkillState,
 } from '../lib/fs-store.js';
 
@@ -167,5 +168,47 @@ test('写入 bundle 后文本保留原样（含 frontmatter）', async () => {
     assert.ok(text.includes('这是 skill 的正文内容'));
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('importLocalSkill：目录 bundle 与单文件导入', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-sm-'));
+  try {
+    const skillsDir = join(root, 'skills');
+    await mkdir(skillsDir, { recursive: true });
+
+    // 目录 bundle（含子目录资源）
+    const srcDir = join(root, 'src-skill');
+    await mkdir(join(srcDir, 'scripts'), { recursive: true });
+    await writeFile(join(srcDir, 'SKILL.md'), GOOD_SKILL);
+    await writeFile(join(srcDir, 'scripts', 'run.py'), 'print("hi")');
+
+    const r1 = await importLocalSkill(skillsDir, srcDir, undefined);
+    assert.equal(r1.name, 'my-test-skill');
+    assert.equal(r1.files, 2);
+    assert.equal(r1.skipped.length, 0);
+    const installedMd = await readFile(join(skillsDir, 'my-test-skill', 'SKILL.md'), 'utf8');
+    assert.ok(installedMd.includes('这是 skill 的正文内容'));
+    const installedPy = await readFile(join(skillsDir, 'my-test-skill', 'scripts', 'run.py'), 'utf8');
+    assert.equal(installedPy, 'print("hi")');
+    // 源目录保持不变
+    assert.ok((await readdir(srcDir)).includes('SKILL.md'));
+
+    // 单文件 flat 导入
+    const flatSrc = join(root, 'flat-skill.md');
+    await writeFile(flatSrc, GOOD_SKILL.replace('my-test-skill', 'flat-skill'));
+    const r2 = await importLocalSkill(skillsDir, flatSrc, undefined);
+    assert.equal(r2.name, 'flat-skill');
+    assert.equal(r2.files, 1);
+    assert.ok((await readdir(join(skillsDir, 'flat-skill'))).includes('SKILL.md'));
+
+    // 不存在的路径
+    await assert.rejects(() => importLocalSkill(skillsDir, join(root, 'nope'), undefined));
+    // 非技能目录（无 SKILL.md）
+    const emptyDir = join(root, 'empty');
+    await mkdir(emptyDir, { recursive: true });
+    await assert.rejects(() => importLocalSkill(skillsDir, emptyDir, undefined));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

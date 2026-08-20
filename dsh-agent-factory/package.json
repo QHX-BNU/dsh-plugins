@@ -1,0 +1,42 @@
+{
+  "name": "dsh-agent-factory",
+  "version": "0.1.0",
+  "description": "Agent 工厂：可复用的 subagent 模板库。侧边栏管理面板（新建/编辑/运行/删除子智能体模板，可指定模型供应商与模型），主 Agent 可用 agent_list / agent_save / agent_run / agent_delete 工具自行创建、编辑并调用这些模板",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "subagent",
+    "agent",
+    "agent-factory",
+    "子智能体",
+    "模板"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-atomic-write": "^1.0.0",
+    "@deepseek-ai/dsh-home-paths": "^1.0.0"
+  }
+}

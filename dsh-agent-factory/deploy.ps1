@@ -1,4 +1,4 @@
-﻿# dsh-skill-manager 部署脚本：把插件同步到 desktop profile 并注册
+﻿# dsh-agent-factory 部署脚本：把插件同步到 desktop profile 并注册
 # 用法：powershell -ExecutionPolicy Bypass -File deploy.ps1 [-Restart]
 param(
     [switch]$Restart   # 加上 -Restart 则延迟 90 秒后重启 DSH Desktop（先让当前回合收尾）
@@ -12,7 +12,9 @@ $patch = Join-Path $profile 'cordis.patch.yml'
 
 Write-Host "==> 复制插件到 $dest"
 if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-Copy-Item -Recurse -Force $plugin $dest
+# robocopy：/XD node_modules 排除本地测试用的 @deepseek-ai junction
+robocopy $plugin $dest /E /XD node_modules /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "robocopy 复制失败（exit=$LASTEXITCODE）" }
 
 $entry = @"
 
@@ -20,9 +22,12 @@ $entry = @"
     - id: $name
       name: '$name'
       config:
-        skillsDir: 'C:/Users/$env:USERNAME/.dsh/skills'
-        statePath: 'C:/Users/$env:USERNAME/.dsh/profiles/desktop/data/skill-manager.json'
-        githubToken: ''
+        statePath: 'C:/Users/$env:USERNAME/.dsh/profiles/desktop/data/agent-factory.json'
+        spawnProvider: 'spawn'
+        forkProvider: 'fork'
+        runTimeoutMs: 900000
+        tools: true
+        promptSection: true
         webApi: true
 "@
 if (Select-String -Path $patch -Pattern "- id: $name" -Quiet) {

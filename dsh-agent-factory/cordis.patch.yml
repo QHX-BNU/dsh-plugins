@@ -1,0 +1,13 @@
+# dsh-agent-factory —— profile 启用配置示例
+# 把下面内容追加到 profile 目录（如 C:\Users\<你>\.dsh\profiles\desktop）的 cordis.patch.yml
+- insert:
+    - id: dsh-agent-factory
+      name: 'dsh-agent-factory'
+      config:
+        statePath: 'C:/Users/<你>/.dsh/profiles/desktop/data/agent-factory.json'
+        spawnProvider: 'spawn'
+        forkProvider: 'fork'
+        runTimeoutMs: 900000
+        tools: true
+        promptSection: true
+        webApi: true

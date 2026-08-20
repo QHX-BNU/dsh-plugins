@@ -1,7 +1,7 @@
-﻿# 延迟重启 DSH Desktop（由 dsh-skill-manager 部署触发）
+﻿# 延迟重启 DSH Desktop（由 dsh-agent-factory 部署触发）
 # 等待一段时间让当前对话回合正常收尾，然后结束并重新拉起应用。
 $ErrorActionPreference = 'Continue'
-$log = Join-Path $env:TEMP 'dsh-restart-skill-manager.log'
+$log = Join-Path $env:TEMP 'dsh-restart-agent-factory.log'
 try {
     Start-Sleep -Seconds 90
     "restart: killing at $(Get-Date -Format o)" | Out-File $log -Append
