@@ -40,6 +40,12 @@ export const Config = z.object({
   webApi: z.boolean().default(true),
   /** 是否注册 Agent 对话工具（task_create 等）。 */
   agentTools: z.boolean().default(true),
+  /** 发消息动作的目标会话未打开时，是否自动转投到当前打开的根会话（避免提醒落空）。 */
+  fallbackToOpenSession: z.boolean().default(true),
+  /** "刚错过"补执行窗口（分钟）：应用重启/系统唤醒后，重复任务若在窗口内
+   *  错过调度（如系统睡眠导致定时器延迟触发），自动补执行一次；超过窗口
+   *  则跳过，直接等下一次。0 表示不补执行。 */
+  missedGraceMinutes: z.number().default(30),
 });
 
 export async function apply(ctx, config) {
@@ -50,8 +56,8 @@ export async function apply(ctx, config) {
   const scheduler = new TaskScheduler(ctx, store, config);
   const disposers = [];
   try {
-    // 恢复调度（重启后过期的一次性任务在此停用并记录）
-    scheduler.restore();
+    // 恢复调度（重启后过期的一次性任务在此停用并记录；刚错过的重复任务补执行）
+    await scheduler.restore();
     if (config.agentTools) {
       // agents/sessions/tools 已在静态 inject 中声明，apply 时必然可用
       disposers.push(registerTaskTools(ctx, store, scheduler));

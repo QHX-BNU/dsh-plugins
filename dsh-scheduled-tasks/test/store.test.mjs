@@ -103,6 +103,66 @@ await executeTask(fakeCtx, onceTask, { commandTimeoutMs: 15000, commandCwd: '' }
 check('once disabled after run', onceTask.enabled === false);
 check('once nextRunAt null after run', onceTask.nextRunAt === null);
 
+// 7. restore 补执行：刚错过（5 分钟内）的重复任务自动补执行
+const { TaskScheduler } = await import('../lib/scheduler.js');
+const dir2 = mkdtempSync(join(tmpdir(), 'dsh-tasks-restore-'));
+const makeMissed = (id, nextRunAt) => ({
+  id,
+  name: '错过补执行',
+  enabled: true,
+  mode: 'daily',
+  time: '09:00',
+  timeZone: 'Asia/Shanghai',
+  action: 'command',
+  content: 'echo catchup-ok',
+  createdAt: Date.now() - 86400000,
+  updatedAt: Date.now(),
+  runCount: 0,
+  history: [],
+  nextRunAt,
+});
+const store4 = new TaskStore(join(dir2, 'tasks.json'), console);
+const sched2 = new TaskScheduler(fakeCtx, store4, {
+  commandTimeoutMs: 15000,
+  commandCwd: '',
+  missedGraceMinutes: 30,
+});
+store4.upsert(makeMissed('m1', Date.now() - 5 * 60000)); // 5 分钟前应执行（刚错过）
+await sched2.restore();
+const m1 = store4.get('m1');
+check('catchup executed', m1.runCount === 1);
+check('catchup ok', m1.lastStatus === 'ok');
+check('catchup note', String(m1.history[0].detail).includes('补执行'));
+check('catchup next future', m1.nextRunAt !== null && m1.nextRunAt > Date.now());
+
+// 8. restore 不补执行：错过超过窗口（120 分钟）→ 直接跳到下一次
+const store5 = new TaskStore(join(dir2, 'tasks2.json'), console);
+const sched3 = new TaskScheduler(fakeCtx, store5, {
+  commandTimeoutMs: 15000,
+  commandCwd: '',
+  missedGraceMinutes: 30,
+});
+store5.upsert(makeMissed('m2', Date.now() - 120 * 60000));
+await sched3.restore();
+const m2 = store5.get('m2');
+check('stale skip no run', m2.runCount === 0);
+check('stale next future', m2.nextRunAt !== null && m2.nextRunAt > Date.now());
+
+// 9. restore 不补执行：missedGraceMinutes = 0 时关闭
+const store6 = new TaskStore(join(dir2, 'tasks3.json'), console);
+const sched4 = new TaskScheduler(fakeCtx, store6, {
+  commandTimeoutMs: 15000,
+  commandCwd: '',
+  missedGraceMinutes: 0,
+});
+store6.upsert(makeMissed('m3', Date.now() - 5 * 60000));
+await sched4.restore();
+check('grace off no run', store6.get('m3').runCount === 0);
+
+sched2.dispose();
+sched3.dispose();
+sched4.dispose();
 rmSync(dir, { recursive: true, force: true });
+rmSync(dir2, { recursive: true, force: true });
 console.log(failed === 0 ? '\nALL PASS' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

@@ -357,6 +357,30 @@ function deepFreeze(value) {
   return value;
 }
 
+/**
+ * 在目标会话未打开时，挑选一个当前打开的根会话作为转投目标。
+ * 优先 agents.roots()（无 owner 的根会话，排除子代理），退回 agents.list()。
+ * @returns 找到的 agent，或 null
+ */
+function pickOpenRootAgent(agents, excludeSessionId) {
+  try {
+    const exclude = String(excludeSessionId || '');
+    const candidates = [];
+    if (typeof agents.roots === 'function') candidates.push(...(agents.roots() ?? []));
+    if (typeof agents.list === 'function') {
+      for (const a of agents.list() ?? []) {
+        if (!candidates.includes(a)) candidates.push(a);
+      }
+    }
+    const pick = candidates.find(
+      (a) => a && typeof a.followup === 'function' && String(a.session?.id ?? a.id) !== exclude,
+    );
+    return pick ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** 执行单个任务；返回执行结果摘要。 */
 export async function executeTask(ctx, task, config) {
   const startedAt = Date.now();
@@ -369,15 +393,32 @@ export async function executeTask(ctx, task, config) {
       if (!agents || typeof agents.get !== 'function') throw new Error('Agent 服务不可用');
       const agent = agents.get(sessionId);
       if (!agent) {
-        const sessions = ctx.sessions;
-        const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(sessionId);
-        throw new Error(exists
-          ? '会话已打开但 Agent 未就绪，请稍后重试'
-          : `目标会话未打开（${sessionId}），无法投递消息`);
+        // 目标会话未打开：若开启 fallback，转投到当前打开的根会话，避免提醒落空
+        if (config.fallbackToOpenSession !== false) {
+          const fallback = pickOpenRootAgent(agents, sessionId);
+          if (fallback) {
+            if (typeof fallback.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
+            fallback.followup(buildTaskMessage(task.content));
+            detail = `目标会话未打开（${sessionId}），已转投到会话 ${String(fallback.session?.id ?? fallback.id)}`;
+          } else {
+            const sessions = ctx.sessions;
+            const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(sessionId);
+            throw new Error(exists
+              ? '会话已打开但 Agent 未就绪，请稍后重试'
+              : `目标会话未打开（${sessionId}），且没有其他打开的会话可转投`);
+          }
+        } else {
+          const sessions = ctx.sessions;
+          const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(sessionId);
+          throw new Error(exists
+            ? '会话已打开但 Agent 未就绪，请稍后重试'
+            : `目标会话未打开（${sessionId}），无法投递消息`);
+        }
+      } else {
+        if (typeof agent.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
+        agent.followup(buildTaskMessage(task.content));
+        detail = `已向会话 ${sessionId} 投递消息并唤醒 Agent`;
       }
-      if (typeof agent.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
-      agent.followup(buildTaskMessage(task.content));
-      detail = `已向会话 ${sessionId} 投递消息并唤醒 Agent`;
     } else {
       const output = await runCommand(String(task.content || ''), {
         timeoutMs: config.commandTimeoutMs,
@@ -425,12 +466,19 @@ export class TaskScheduler {
     this.running = false;
   }
 
-  /** 重启恢复：为每个启用任务重算 nextRunAt；过期的一次性任务记 missed 并停用，
-   *  超出结束日期的重复任务标记完成并停用。 */
-  restore() {
+  /**
+   * 重启恢复：为每个启用任务重算 nextRunAt；过期的一次性任务记 missed 并停用，
+   * 超出结束日期的重复任务标记完成并停用。
+   * 重复任务若在"刚错过"窗口内（如系统睡眠导致定时器延迟触发、应用重启），
+   * 立即补执行一次，避免提醒落空；超过窗口则跳过直接等下一次。
+   */
+  async restore() {
     const now = Date.now();
+    const graceMs = Math.max(0, Number(this.config.missedGraceMinutes) || 0) * 60_000;
+    const catchUp = [];
     for (const task of this.store.tasks) {
       if (!task.enabled) continue;
+      const oldNext = task.nextRunAt;
       const next = computeNextRun(task, now);
       task.nextRunAt = next;
       if (next === null) {
@@ -445,6 +493,24 @@ export class TaskScheduler {
           task.enabled = false;
           this.ctx.logger.info?.(`dsh-scheduled-tasks: 任务「${task.name}」已超出结束日期，已停用`);
         }
+        continue;
+      }
+      // 刚错过（旧 nextRunAt 落在 now - grace 到 now 之间）：补执行
+      if (graceMs > 0 && oldNext != null && Number(oldNext) <= now && now - Number(oldNext) <= graceMs) {
+        catchUp.push(task);
+      }
+    }
+    // 补执行（复用 executeTask 的完整状态更新逻辑）
+    for (const task of catchUp) {
+      const scheduledFor = task.nextRunAt;
+      try {
+        const result = await executeTask(this.ctx, task, this.config);
+        const note = `（错过原计划 ${fmtEpoch(scheduledFor)} 后补执行）`;
+        task.history[0] = { ...task.history[0], detail: `${task.history[0]?.detail ?? ''}${note}`.slice(0, MAX_HISTORY_DETAIL) };
+        task.lastError = result.status === 'error' ? `${result.detail}${note}`.slice(0, MAX_HISTORY_DETAIL) : null;
+        this.ctx.logger.info?.(`dsh-scheduled-tasks: 任务「${task.name}」错过调度后补执行${result.status === 'ok' ? '成功' : '失败'}（原计划 ${fmtEpoch(scheduledFor)}）`);
+      } catch (err) {
+        this.ctx.logger.error?.(`dsh-scheduled-tasks: 任务「${task.name}」补执行异常：${err?.message ?? err}`);
       }
     }
     this.store.persist();
@@ -487,8 +553,16 @@ export class TaskScheduler {
         (t) => t.enabled && t.nextRunAt != null && Number(t.nextRunAt) <= now,
       );
       for (const task of due) {
+        const scheduledFor = task.nextRunAt;
         try {
           await executeTask(this.ctx, task, this.config);
+          // 定时器延迟（如系统睡眠）导致执行晚于计划时，在历史中标注原因
+          const delayMs = Date.now() - Number(scheduledFor);
+          if (delayMs > 60_000 && task.history && task.history[0]) {
+            const note = `（原计划 ${fmtEpoch(scheduledFor)}，实际延迟 ${Math.round(delayMs / 60000)} 分钟）`;
+            task.history[0] = { ...task.history[0], detail: `${task.history[0].detail ?? ''}${note}`.slice(0, MAX_HISTORY_DETAIL) };
+            if (task.lastError) task.lastError = `${task.lastError}${note}`.slice(0, MAX_HISTORY_DETAIL);
+          }
           this.ctx.logger.info?.(
             `dsh-scheduled-tasks: 任务「${task.name}」执行${task.lastStatus === 'ok' ? '成功' : '失败'}`,
           );
@@ -528,4 +602,13 @@ export class TaskScheduler {
 /** 创建新任务 id。 */
 export function newTaskId() {
   return randomUUID();
+}
+
+/** 时间戳 → 本地可读字符串（用于日志/补执行备注）。 */
+function fmtEpoch(ts) {
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return String(ts);
+  }
 }
