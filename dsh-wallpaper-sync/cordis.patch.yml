@@ -1,0 +1,15 @@
+# dsh-wallpaper-sync —— profile 启用配置示例
+# 把下面内容追加到 profile 目录（如 C:\Users\<你>\.dsh\profiles\desktop）的 cordis.patch.yml
+- insert:
+    - id: dsh-wallpaper-sync
+      name: 'dsh-wallpaper-sync'
+      config:
+        # Wallpaper Engine 的 config.json 路径（留空自动探测：读注册表 HKCU\Software\WallpaperEngine\installPath + Steam libraryfolders.vdf）
+        weConfigPath: 'D:/Program Files/Steam/steamapps/common/wallpaper_engine/config.json'
+        # 当前激活壁纸所在显示器的编号（WE 的 selectedwallpapers key；默认取第一个非应用型显示器）
+        monitor: 'Monitor0'
+        # 前端轮询 WE 配置变更的间隔（毫秒），用于自动跟随桌面壁纸切换
+        pollIntervalMs: 3000
+        # 壁纸渲染失败(src 加载错误)时是否作为纯色背景兜底（false 时不做任何覆盖，恢复 DSH 默认背景）
+        fallbackOnError: true
+        webApi: true

@@ -18,7 +18,6 @@ window.__ModuleLoader__.load({
     const { jsx, jsxs, Fragment } = react_jsx_runtime;
     const { useState, useEffect, useRef, useCallback } = react;
     const {
-      IconSettingsOutline16,
       IconCloseOutline16,
       IconSearchOutline16,
       IconPlusOutline16,
@@ -32,11 +31,6 @@ window.__ModuleLoader__.load({
     } = primitives;
 
     const css = `
-[class*="_footerActions"]{flex-direction:column !important;align-items:stretch}
-.dsh-tm-trigger{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);background:transparent;border:none;border-radius:12px;flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}
-.dsh-tm-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-tm-trigger[data-rail=true]{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}
-.dsh-tm-trigger-label{white-space:nowrap;overflow:hidden}
 .dsh-tm-overlay{z-index:1000;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}
 .dsh-tm-mask{background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);position:absolute;inset:0}
 .dsh-tm-panel{z-index:1;background:var(--dsw-alias-bg-layer-2);width:1080px;max-width:calc(100vw - 48px);height:min(880px,100vh - 48px);box-shadow:var(--dsw-shadow-lv3);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:24px;display:flex;flex-direction:column;position:relative;overflow:hidden}
@@ -539,7 +533,8 @@ window.__ModuleLoader__.load({
     }
 
     /** 面板主体 */
-    function ManagerSection() {
+    function ManagerSection(props) {
+      const { embedded } = props || {};
       const [data, setData] = useState(null);
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
@@ -594,10 +589,12 @@ window.__ModuleLoader__.load({
       const editorInitial = editing && editing !== "__new__" ? editing : null;
 
       return jsxs("div", { className: "dsh-tm", children: [
-        jsxs("div", { className: "dsh-tm-head", children: [
-          jsx("div", { className: "dsh-tm-title", children: "工具管理" }),
-          jsx("div", { className: "dsh-tm-sub", children: "查看 DSH 全部工具，制作自定义工具（定义参数与执行代码，保存后主 Agent 立即可用），随时禁用/启用/删除。禁用后模型不再看到该工具。" }),
-        ] }),
+        embedded
+          ? jsx("div", { className: "dsh-tm-sub", children: "查看 DSH 全部工具，制作自定义工具（定义参数与执行代码，保存后主 Agent 立即可用），随时禁用/启用/删除。禁用后模型不再看到该工具。" })
+          : jsxs("div", { className: "dsh-tm-head", children: [
+              jsx("div", { className: "dsh-tm-title", children: "工具管理" }),
+              jsx("div", { className: "dsh-tm-sub", children: "查看 DSH 全部工具，制作自定义工具（定义参数与执行代码，保存后主 Agent 立即可用），随时禁用/启用/删除。禁用后模型不再看到该工具。" }),
+            ] }),
         jsxs("div", { className: "dsh-tm-tabs", children: [
           jsx("button", { className: "dsh-tm-tab" + (filter === "all" ? " dsh-tm-tab-on" : ""), onClick: () => setFilter("all"), children: "全部" }),
           jsx("button", { className: "dsh-tm-tab" + (filter === "custom" ? " dsh-tm-tab-on" : ""), onClick: () => setFilter("custom"), children: "自定义" }),
@@ -683,62 +680,21 @@ window.__ModuleLoader__.load({
       ] });
     }
 
-    /** 侧边栏入口 + 独立面板 */
-    function ToolManagerEntry(props) {
-      const { wide } = props;
-      const [open, setOpen] = useState(false);
-      const close = useCallback(() => setOpen(false), []);
-      useEffect(() => {
-        if (!open) return;
-        const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
-      }, [open]);
-      return jsxs(Fragment, { children: [
-        jsx("button", {
-          type: "button",
-          className: "dsh-tm-trigger",
-          "data-rail": wide ? undefined : true,
-          "aria-haspopup": "dialog",
-          "aria-expanded": open,
-          title: "工具管理",
-          onClick: () => setOpen(true),
-          children: [
-            jsx(IconSettingsOutline16, { size: wide ? 16 : 18 }),
-            wide ? jsx("span", { className: "dsh-tm-trigger-label", children: "工具管理" }) : null,
-          ],
-        }),
-        open
-          ? jsxs("div", { className: "dsh-tm-overlay", role: "dialog", "aria-label": "工具管理", children: [
-              jsx("div", { className: "dsh-tm-mask", onClick: close }),
-              jsxs("div", { className: "dsh-tm-panel", children: [
-                jsxs("div", { className: "dsh-tm-panel-head", children: [
-                  jsx("span", { className: "dsh-tm-panel-title", children: "工具管理" }),
-                  jsx("button", {
-                    type: "button",
-                    className: "dsh-tm-panel-close",
-                    "aria-label": "关闭",
-                    onClick: close,
-                    children: jsx(IconCloseOutline16, { size: 14 }),
-                  }),
-                ] }),
-                jsx("div", { className: "dsh-tm-panel-body", children: jsx(ManagerSection, {}) }),
-              ] }),
-            ] })
-          : null,
-      ] });
+    /** 设置页「工具管理」分区 */
+    function ToolManagerSettingsSection() {
+      return jsx(ManagerSection, { embedded: true });
     }
 
     const inject = ["slots"];
 
     function apply(ctx) {
       ensureCss();
-      ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-        name: "sidebar.footer.action",
+      ctx.slots.inject("settings.section", () => ctx.slots.register({
+        name: "settings.section",
         id: "dsh-tool-manager",
-        order: 26,
+        order: 20,
         label: () => "工具管理",
-      }, ToolManagerEntry));
+      }, ToolManagerSettingsSection));
     }
 
     exports.apply = apply;

@@ -125,6 +125,7 @@ window.__ModuleLoader__.load({
 [data-decoration="text-ref"]{
   background:#6187d838;border-radius:6px;padding:0 6px;margin:0 -6px;
 }
+.dsh-sm-section{max-width:760px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}
 .dsh-sm-form{display:flex;flex-direction:column;gap:8px;background:var(--dsw-alias-bg-module-platform);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:12px}
 .dsh-sm-form .dsh-sm-repo{width:100%}
 .dsh-sm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -543,50 +544,17 @@ window.__ModuleLoader__.load({
       ] });
     }
 
-    /** 侧边栏入口 + 独立面板（与"定时任务/插件市场/设置"同级） */
-    function SkillManagerEntry(props) {
-      const { wide, onCatalogChanged, fetchSessionSkills, currentSessionId } = props;
-      const [open, setOpen] = useState(false);
-      const close = useCallback(() => setOpen(false), []);
-      useEffect(() => {
-        if (!open) return;
-        const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
-      }, [open]);
-      return jsxs(Fragment, { children: [
-        jsx("button", {
-          type: "button",
-          className: "dsh-sm-trigger",
-          "data-rail": wide ? undefined : true,
-          "aria-haspopup": "dialog",
-          "aria-expanded": open,
-          title: "Skill 管理",
-          onClick: () => setOpen(true),
-          children: [
-            jsx(IconSkillOutline16, { size: wide ? 16 : 18 }),
-            wide ? jsx("span", { className: "dsh-sm-trigger-label", children: "Skill 管理" }) : null,
-          ],
+    /** 设置页 section：嵌入「设置 → Skill 管理」页面（取代旧的侧边栏弹窗入口） */
+    function SkillManagerSection(props) {
+      const { onCatalogChanged, fetchSessionSkills, currentSessionId } = props;
+      return jsx("div", {
+        className: "dsh-sm-section",
+        children: jsx(ManagerSection, {
+          onCatalogChanged: onCatalogChanged,
+          fetchSessionSkills: fetchSessionSkills,
+          currentSessionId: currentSessionId,
         }),
-        open
-          ? jsxs("div", { className: "dsh-sm-overlay", role: "dialog", "aria-label": "Skill 管理", children: [
-              jsx("div", { className: "dsh-sm-mask", onClick: close }),
-              jsxs("div", { className: "dsh-sm-panel", children: [
-                jsxs("div", { className: "dsh-sm-panel-head", children: [
-                  jsx("span", { className: "dsh-sm-panel-title", children: "Skill 管理" }),
-                  jsx("button", {
-                    type: "button",
-                    className: "dsh-sm-panel-close",
-                    "aria-label": "关闭",
-                    onClick: close,
-                    children: jsx(IconCloseOutline16, { size: 14 }),
-                  }),
-                ] }),
-                jsx("div", { className: "dsh-sm-panel-body", children: jsx(ManagerSection, { onCatalogChanged: onCatalogChanged, fetchSessionSkills: fetchSessionSkills, currentSessionId: currentSessionId }) }),
-              ] }),
-            ] })
-          : null,
-      ] });
+      });
     }
 
     const inject = ["slots", "inputTriggers", "connection", "sessions", "remote"];
@@ -1133,8 +1101,9 @@ window.__ModuleLoader__.load({
         };
       }, "skill-manager: @ sources");
 
-      ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-        name: "sidebar.footer.action",
+      // 设置页侧边栏入口（「设置 → Skill 管理」）
+      ctx.slots.inject("settings.section", () => ctx.slots.register({
+        name: "settings.section",
         id: "skill-manager",
         order: 20,
         label: () => "Skill 管理",
@@ -1143,7 +1112,7 @@ window.__ModuleLoader__.load({
           fetchSessionSkills: fetchCatalog,
           currentSessionId,
         }),
-      }, SkillManagerEntry));
+      }, SkillManagerSection));
 
       ctx.on("connection/reset", () => {
         clearAll();

@@ -543,15 +543,30 @@ export class TaskScheduler {
     }, delay);
   }
 
-  /** 到期触发：串行执行所有到期任务，随后重排。 */
+  /**
+   * 到期触发：串行执行所有到期任务，随后重排。
+   * 应用错过窗口（graceMs）：超过窗口的过期任务（如系统睡眠 8 小时后唤醒）
+   * 不再补执行，直接重算下一次，避免深夜收到"中午该午休"这类过期提醒。
+   */
   async fire() {
     if (this.running) return;
     this.running = true;
     try {
       const now = Date.now();
-      const due = this.store.tasks.filter(
-        (t) => t.enabled && t.nextRunAt != null && Number(t.nextRunAt) <= now,
-      );
+      const graceMs = Math.max(0, Number(this.config.missedGraceMinutes) || 0) * 60_000;
+      const { due, skip } = selectDueTasks(this.store.tasks, now, graceMs);
+      // 错过超窗的任务：跳过并重算下一次（endDate 到期则停用）
+      for (const task of skip) {
+        task.missed = (task.missed || 0) + 1;
+        task.nextRunAt = computeNextRun(task, now);
+        if (task.nextRunAt === null) {
+          task.enabled = false;
+          task.completedAt = task.completedAt || Date.now();
+        }
+        this.ctx.logger.warn?.(
+          `dsh-scheduled-tasks: 任务「${task.name}」错过调度超窗口（原计划 ${fmtEpoch(task.nextRunAt ?? now)} 之后），未执行，已跳到下次`,
+        );
+      }
       for (const task of due) {
         const scheduledFor = task.nextRunAt;
         try {

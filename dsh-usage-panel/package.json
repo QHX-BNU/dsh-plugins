@@ -1,0 +1,41 @@
+{
+  "name": "dsh-usage-panel",
+  "version": "0.1.0",
+  "description": "DSH 用量面板：显示 DeepSeek 账户余额、Token 用量与估算费用（适配 DSH Desktop 2.0.2 / @deepseek-ai/dsh-* 0.1.1-rc.2）",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "usage",
+    "token",
+    "cost",
+    "balance",
+    "deepseek",
+    "用量",
+    "费用"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}

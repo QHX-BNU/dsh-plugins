@@ -18,7 +18,6 @@ window.__ModuleLoader__.load({
     const { jsx, jsxs, Fragment } = react_jsx_runtime;
     const { useState, useEffect, useRef, useCallback } = react;
     const {
-      IconUserOutline16,
       IconCloseOutline16,
       IconSearchOutline16,
       IconPlusOutline16,
@@ -574,50 +573,9 @@ window.__ModuleLoader__.load({
       ] });
     }
 
-    /** 侧边栏入口 + 独立面板 */
-    function AgentFactoryEntry(props) {
-      const { wide, currentSessionId } = props;
-      const [open, setOpen] = useState(false);
-      const close = useCallback(() => setOpen(false), []);
-      useEffect(() => {
-        if (!open) return;
-        const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
-      }, [open]);
-      return jsxs(Fragment, { children: [
-        jsx("button", {
-          type: "button",
-          className: "dsh-af-trigger",
-          "data-rail": wide ? undefined : true,
-          "aria-haspopup": "dialog",
-          "aria-expanded": open,
-          title: "Agent 工厂",
-          onClick: () => setOpen(true),
-          children: [
-            jsx(IconUserOutline16, { size: wide ? 16 : 18 }),
-            wide ? jsx("span", { className: "dsh-af-trigger-label", children: "Agent 工厂" }) : null,
-          ],
-        }),
-        open
-          ? jsxs("div", { className: "dsh-af-overlay", role: "dialog", "aria-label": "Agent 工厂", children: [
-              jsx("div", { className: "dsh-af-mask", onClick: close }),
-              jsxs("div", { className: "dsh-af-panel", children: [
-                jsxs("div", { className: "dsh-af-panel-head", children: [
-                  jsx("span", { className: "dsh-af-panel-title", children: "Agent 工厂" }),
-                  jsx("button", {
-                    type: "button",
-                    className: "dsh-af-panel-close",
-                    "aria-label": "关闭",
-                    onClick: close,
-                    children: jsx(IconCloseOutline16, { size: 14 }),
-                  }),
-                ] }),
-                jsx("div", { className: "dsh-af-panel-body", children: jsx(FactorySection, { currentSessionId: currentSessionId }) }),
-              ] }),
-            ] })
-          : null,
-      ] });
+    /** 设置页 section：Agent 工厂（settings.section slot） */
+    function AgentFactorySection(props) {
+      return jsx(FactorySection, { currentSessionId: props.currentSessionId });
     }
 
     const inject = ["slots", "sessions"];
@@ -633,13 +591,14 @@ window.__ModuleLoader__.load({
           return null;
         }
       };
-      ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-        name: "sidebar.footer.action",
-        id: "dsh-agent-factory",
+      // 设置页左侧导航出现「Agent 工厂」入口（general 0 / models 10 / plugins 15 / agent-presets 20 / agent-factory 25）
+      ctx.slots.inject("settings.section", () => ctx.slots.register({
+        name: "settings.section",
+        id: "agent-factory",
         order: 25,
         label: () => "Agent 工厂",
         inject: () => ({ currentSessionId }),
-      }, AgentFactoryEntry));
+      }, AgentFactorySection));
     }
 
     exports.apply = apply;

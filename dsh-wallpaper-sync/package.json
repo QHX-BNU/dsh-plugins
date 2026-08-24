@@ -1,0 +1,42 @@
+{
+  "name": "dsh-wallpaper-sync",
+  "version": "0.1.0",
+  "description": "DSH 背景与 Windows 桌面壁纸同步：读取 Wallpaper Engine 当前激活的壁纸作为 DSH 全界面背景，并在桌面切换壁纸时自动跟随（视频动播 / 网页进 iframe / Scene 出静态帧）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "wallpaper",
+    "wallpaper-engine",
+    "背景壁纸"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}

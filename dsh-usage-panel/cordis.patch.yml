@@ -1,0 +1,16 @@
+# dsh-usage-panel —— profile 启用配置示例
+# 把插件目录放到 profile 的 node_modules（如
+# C:\Users\<你>\.dsh\profiles\desktop\node_modules\dsh-usage-panel），
+# 然后把下面内容追加到 profile 目录的 cordis.patch.yml
+- insert:
+    - id: dsh-usage-panel
+      name: 'dsh-usage-panel'
+      config:
+        webApi: true
+        balance: true
+        currency: CNY
+        # 可选：按模型覆盖单价（CNY / 1M tokens）；key 为模型 id 前缀（小写）。
+        # 未覆盖的模型回退到内置默认价格。
+        # prices:
+        #   deepseek-chat: { inputPerM: 2, cacheReadPerM: 0.5, cacheWritePerM: 2, outputPerM: 3 }
+        #   deepseek-reasoner: { inputPerM: 4, cacheReadPerM: 0.5, cacheWritePerM: 4, outputPerM: 16 }
