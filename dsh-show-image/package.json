@@ -1,0 +1,39 @@
+{
+  "name": "dsh-show-image",
+  "version": "0.1.0",
+  "description": "DSH 界面内嵌图片插件：模型调用 show_image 工具，把本地图片以内联卡片显示在 WebUI 对话里（点击看大图）；图片只走展示通道，永远不进入模型历史（对纯文本模型安全）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "image",
+    "show_image",
+    "inline-image",
+    "lightbox",
+    "图片"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}

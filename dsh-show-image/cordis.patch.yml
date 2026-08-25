@@ -1,0 +1,12 @@
+# dsh-show-image —— profile 启用配置示例
+# 把插件目录放到 profile 的 node_modules（如
+# C:\Users\<你>\.dsh\profiles\desktop\node_modules\dsh-show-image），
+# 然后把下面内容追加到 profile 目录的 cordis.patch.yml
+- insert:
+    - id: dsh-show-image
+      name: 'dsh-show-image'
+      config:
+        maxImages: 12
+        maxBytes: 83886080
+        maxEmbedBytes: 2097152
+        defaultColumns: 3
