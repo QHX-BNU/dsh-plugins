@@ -15,6 +15,7 @@
 | [dsh-tool-manager](./dsh-tool-manager) | 0.1.0 | 工具管理：显示 DSH 全部工具，制作自定义工具（定义参数与执行代码，保存后主 Agent 立即可用），禁用/启用/删除任意工具（侧边栏面板 + toolmgr_list/create/edit/delete/toggle 五个工具） |
 | [dsh-usage-panel](./dsh-usage-panel) | 0.1.0 | 用量面板：显示 DeepSeek 账户余额、Token 用量与估算费用（适配 DSH Desktop 2.0.2） |
 | [dsh-wallpaper-sync](./dsh-wallpaper-sync) | 0.1.0 | 背景同步：读取 Wallpaper Engine 当前壁纸作为 DSH 全界面背景，桌面切换壁纸时自动跟随 |
+| [dsh-drawio](./dsh-drawio) | 0.1.0 | drawio 画图：agent 画图工具（drawio_validate / drawio_render / drawio_template）+ 侧边栏「画板」——mxfile XML 实时渲染为 SVG、导出 PNG、写入工作区（纯 TS 零依赖翻译器） |
 
 ## 安装
 
