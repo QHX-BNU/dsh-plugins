@@ -162,13 +162,14 @@ window.__ModuleLoader__.load({
       return s.length > n ? s.slice(0, n) + "…" : s;
     }
 
-    /** 服务端任务 → 表单草稿（datetime-local 本地值） */
-    function taskToDraft(task) {
+    /** 服务端任务 → 表单草稿（datetime-local 本地值；currentSessionId 用于新建任务默认绑定当前会话） */
+    function taskToDraft(task, currentSessionId) {
       const d = new Date();
       const pad = (x) => String(x).padStart(2, "0");
       const localInput = (date) =>
         date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
         "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+      const cur = task ? (task.createdSessionId || currentSessionId || "") : (currentSessionId || "");
       let at = "";
       if (task && task.at) {
         try { at = localInput(new Date(task.at)); } catch { at = ""; }
@@ -184,7 +185,9 @@ window.__ModuleLoader__.load({
         startDate: task && task.startDate ? task.startDate : "",
         endDate: task && task.endDate ? task.endDate : "",
         action: task ? task.action : "session",
-        sessionId: task && task.sessionId ? task.sessionId : "",
+        // 新建任务默认把目标会话与创建会话都绑定到当前会话（"设置定时任务的会话"）
+        sessionId: task ? (task.sessionId || cur) : cur,
+        createdSessionId: cur,
         content: task ? task.content : "",
         timeZone: (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC",
       };
@@ -214,6 +217,7 @@ window.__ModuleLoader__.load({
         payload.endDate = draft.endDate || null;
       }
       if (draft.action === "session") payload.sessionId = draft.sessionId;
+      payload.createdSessionId = draft.createdSessionId || null;
       return payload;
     }
 
@@ -225,6 +229,10 @@ window.__ModuleLoader__.load({
         id,
         label: String((s && (s.displayTitle || s.title)) || id),
       }));
+      // 确保"当前会话（创建任务的会话）"始终在选项中，方便新建任务默认投递到设置任务处
+      if (currentSessionId && !sessionOptions.some((s) => s.id === currentSessionId)) {
+        sessionOptions.unshift({ id: currentSessionId, label: "当前会话（创建任务处）" });
+      }
       return jsxs("div", { className: "dsh-st-form", children: [
         jsxs("div", { className: "dsh-st-row", children: [
           jsxs("div", { className: "dsh-st-field", children: [
@@ -358,7 +366,7 @@ window.__ModuleLoader__.load({
                     ...sessionOptions.map((s) => jsx("option", { key: s.id, value: s.id, children: s.label })),
                   ],
                 }),
-                jsx("span", { className: "dsh-st-hint", children: "仅当前打开（已加载）的会话可选；当前会话：" + (currentSessionId ? truncate(currentSessionId, 12) : "无") }),
+                jsx("span", { className: "dsh-st-hint", children: "默认投递到创建任务的会话（设置定时任务处）。当前会话：" + (currentSessionId ? truncate(currentSessionId, 12) : "无") }),
               ] })
             : jsxs("div", { className: "dsh-st-field", children: [
                 jsx("span", { className: "dsh-st-label", children: "执行命令（通过系统 shell 运行）" }),
@@ -537,13 +545,13 @@ window.__ModuleLoader__.load({
 
       const startEdit = (task) => {
         setEditingId(task.id);
-        setDraft(taskToDraft(task));
+        setDraft(taskToDraft(task, currentSessionId));
         setShowAdd(false);
       };
 
       const startAdd = () => {
         setEditingId(null);
-        setDraft(taskToDraft(null));
+        setDraft(taskToDraft(null, currentSessionId));
         setShowAdd(true);
       };
 

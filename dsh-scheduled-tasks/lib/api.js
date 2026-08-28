@@ -135,7 +135,9 @@ export function validateTaskInput(input, existing) {
   // 动作专属参数
   if (action === 'session') {
     const sessionId = String(input.sessionId ?? '').trim();
-    if (!sessionId) throw new Error('请选择目标会话');
+    const createdSessionId = String(input.createdSessionId ?? existing?.createdSessionId ?? '').trim();
+    // 允许只绑定"创建任务的会话"（createdSessionId），执行时会回退到它
+    if (!sessionId && !createdSessionId) throw new Error('请选择目标会话');
   }
 
   const now = Date.now();
@@ -158,7 +160,9 @@ export function validateTaskInput(input, existing) {
     intervalMinutes: mode === 'interval' ? Number(input.intervalMinutes) : null,
     startDate,
     endDate,
-    sessionId: action === 'session' ? String(input.sessionId).trim() : null,
+    sessionId: action === 'session' ? String(input.sessionId ?? '').trim() || null : null,
+    // 创建任务时的会话（"设置定时任务的会话"）；执行时作为 sessionId 为空时的默认目标
+    createdSessionId: String(input.createdSessionId ?? existing?.createdSessionId ?? '').trim() || null,
     // 保留既有统计字段
     runCount: existing ? existing.runCount || 0 : 0,
     lastRunAt: existing ? existing.lastRunAt ?? null : null,

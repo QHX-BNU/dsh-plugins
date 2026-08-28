@@ -78,6 +78,31 @@ const valid = validateTaskInput({
 });
 check('validate ok', valid.id && valid.name === '测试' && valid.nextRunAt > Date.now());
 
+// createdSessionId：捕获、允许仅绑定创建会话、编辑时保留
+const created = validateTaskInput({
+  name: '绑定创建会话',
+  mode: 'once',
+  at: new Date(Date.now() + 3600000).toISOString(),
+  timeZone: 'Asia/Shanghai',
+  action: 'session',
+  createdSessionId: 'create-sess',
+  content: 'hi',
+});
+check('validate captures createdSessionId', created.createdSessionId === 'create-sess');
+check('validate session without sessionId but with createdSessionId ok', created.sessionId === null);
+const edited = validateTaskInput(
+  {
+    name: '改名',
+    mode: 'once',
+    at: new Date(Date.now() + 3600000).toISOString(),
+    timeZone: 'Asia/Shanghai',
+    action: 'session',
+    content: '新内容',
+  },
+  created,
+);
+check('edit preserves createdSessionId', edited.createdSessionId === 'create-sess' && edited.id === created.id);
+
 // 起止日期校验
 const ranged = validateTaskInput({
   name: '范围任务',

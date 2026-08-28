@@ -389,35 +389,48 @@ export async function executeTask(ctx, task, config) {
   try {
     if (task.action === 'session') {
       const agents = ctx.agents;
-      const sessionId = String(task.sessionId || '');
       if (!agents || typeof agents.get !== 'function') throw new Error('Agent 服务不可用');
-      const agent = agents.get(sessionId);
-      if (!agent) {
-        // 目标会话未打开：若开启 fallback，转投到当前打开的根会话，避免提醒落空
+      // 目标会话优先级：显式指定的 sessionId > 创建任务时的会话 createdSessionId
+      //（即"设置定时任务的会话"）。两者都未命中时才考虑转投到当前打开的会话。
+      const explicit = String(task.sessionId || '').trim();
+      const created = String(task.createdSessionId || '').trim();
+      const candidates = [];
+      if (explicit) candidates.push(explicit);
+      if (created && created !== explicit) candidates.push(created);
+
+      let delivered = false;
+      for (const sid of candidates) {
+        const agent = agents.get(sid);
+        if (!agent) continue;
+        if (typeof agent.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
+        agent.followup(buildTaskMessage(task.content));
+        detail = (sid === explicit && explicit)
+          ? `已向会话 ${sid} 投递消息并唤醒 Agent`
+          : `已向创建任务的会话 ${sid} 投递消息并唤醒 Agent`;
+        delivered = true;
+        break;
+      }
+
+      if (!delivered) {
+        const primary = explicit || created || '';
+        const primaryLabel = primary || '未指定';
+        const sessions = ctx.sessions;
+        const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(primary);
+        const reason = exists
+          ? '会话已打开但 Agent 未就绪，请稍后重试'
+          : `目标会话未打开（${primaryLabel}），无法投递消息`;
         if (config.fallbackToOpenSession !== false) {
-          const fallback = pickOpenRootAgent(agents, sessionId);
+          const fallback = pickOpenRootAgent(agents, primary);
           if (fallback) {
             if (typeof fallback.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
             fallback.followup(buildTaskMessage(task.content));
-            detail = `目标会话未打开（${sessionId}），已转投到会话 ${String(fallback.session?.id ?? fallback.id)}`;
+            detail = `目标会话未打开（${primaryLabel}），已转投到会话 ${String(fallback.session?.id ?? fallback.id)}`;
           } else {
-            const sessions = ctx.sessions;
-            const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(sessionId);
-            throw new Error(exists
-              ? '会话已打开但 Agent 未就绪，请稍后重试'
-              : `目标会话未打开（${sessionId}），且没有其他打开的会话可转投`);
+            throw new Error(`${reason}，且没有其他打开的会话可转投`);
           }
         } else {
-          const sessions = ctx.sessions;
-          const exists = sessions && typeof sessions.get === 'function' && !!sessions.get(sessionId);
-          throw new Error(exists
-            ? '会话已打开但 Agent 未就绪，请稍后重试'
-            : `目标会话未打开（${sessionId}），无法投递消息`);
+          throw new Error(reason);
         }
-      } else {
-        if (typeof agent.followup !== 'function') throw new Error('Agent 不支持 followup 投递');
-        agent.followup(buildTaskMessage(task.content));
-        detail = `已向会话 ${sessionId} 投递消息并唤醒 Agent`;
       }
     } else {
       const output = await runCommand(String(task.content || ''), {

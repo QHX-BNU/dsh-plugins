@@ -159,6 +159,80 @@ store6.upsert(makeMissed('m3', Date.now() - 5 * 60000));
 await sched4.restore();
 check('grace off no run', store6.get('m3').runCount === 0);
 
+// 10. session 动作：显式 sessionId 优先投递
+const sentTo = [];
+const makeAgent = (id) => ({
+  id,
+  session: { id },
+  followup(msg) { sentTo.push({ id, text: msg.content[0].text }); },
+});
+const sessCtx = {
+  logger: console,
+  sessions: { get: () => null },
+  agents: { get: (id) => (id === 'setupSess' ? makeAgent('setupSess') : null) },
+};
+const sessTask = {
+  ...task,
+  id: 't5',
+  mode: 'interval',
+  intervalMinutes: 5,
+  action: 'session',
+  sessionId: 'setupSess',
+  createdSessionId: 'setupSess',
+  content: '提醒测试',
+  runCount: 0,
+  history: [],
+  createdAt: Date.now(),
+};
+const sessRes = await executeTask(sessCtx, sessTask, { commandTimeoutMs: 15000, commandCwd: '' });
+check('session delivered to explicit id', sessRes.status === 'ok' && sentTo.length === 1 && sentTo[0].id === 'setupSess');
+check('session followup content', sentTo[0].text === '提醒测试');
+
+// 11. session 动作：sessionId 为空时回退到 createdSessionId（设置定时任务的会话）
+const sentTo2 = [];
+const sessCtx2 = {
+  logger: console,
+  sessions: { get: () => null },
+  agents: { get: (id) => (id === 'setupSess' ? { id, session: { id }, followup(m) { sentTo2.push({ id, text: m.content[0].text }); } } : null) },
+};
+const sessTask2 = {
+  ...task,
+  id: 't6',
+  mode: 'interval',
+  intervalMinutes: 5,
+  action: 'session',
+  sessionId: '',
+  createdSessionId: 'setupSess',
+  content: '回退测试',
+  runCount: 0,
+  history: [],
+  createdAt: Date.now(),
+};
+const sessRes2 = await executeTask(sessCtx2, sessTask2, { commandTimeoutMs: 15000, commandCwd: '' });
+check('session falls back to createdSessionId', sessRes2.status === 'ok' && sentTo2.length === 1 && sentTo2[0].id === 'setupSess');
+
+// 12. session 动作：目标会话未打开且无 fallback 时记为失败
+const sessCtx3 = {
+  logger: console,
+  sessions: { get: () => null },
+  agents: { get: () => null, roots: () => [] },
+};
+const sessTask3 = {
+  ...task,
+  id: 't7',
+  mode: 'interval',
+  intervalMinutes: 5,
+  action: 'session',
+  sessionId: 'nope',
+  createdSessionId: '',
+  content: 'x',
+  runCount: 0,
+  history: [],
+  createdAt: Date.now(),
+};
+const sessRes3 = await executeTask(sessCtx3, sessTask3, { commandTimeoutMs: 15000, commandCwd: '' });
+check('session no target is error', sessRes3.status === 'error' && String(sessRes3.detail).includes('目标会话未打开'));
+
 sched2.dispose();
 sched3.dispose();
 sched4.dispose();

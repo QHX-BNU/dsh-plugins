@@ -55,7 +55,7 @@ function fmtTask(t) {
     lines.push(`  有效期：${t.startDate ?? '不限'} ~ ${t.endDate ?? '长期'}`);
   }
   if (t.action === 'session') {
-    lines.push(`  目标会话：${t.sessionId ?? '（未指定）'}`);
+    lines.push(`  目标会话：${t.sessionId || t.createdSessionId || '（未指定）'}`);
   }
   lines.push(`  内容：${String(t.content).slice(0, 120)}${String(t.content).length > 120 ? '…' : ''}`);
   if (t.nextRunAt) lines.push(`  下次执行：${fmtLocal(t.nextRunAt)}`);
@@ -89,7 +89,7 @@ export function registerTaskTools(ctx, store, scheduler) {
         '- weekly 每周：weekdays 传星期数字数组（0=周日，1=周一 … 6=周六）+ time "HH:mm"。\n' +
         '- interval 间隔：intervalMinutes 传间隔分钟数（1~10080）。\n' +
         '可选 startDate/endDate（"YYYY-MM-DD"）限定执行区间（含当天），到达结束日期后任务自动停用。\n' +
-        'action 为 session 时，到点向 sessionId 指定的会话投递 content 消息并唤醒 Agent（sessionId 不填默认当前会话）；action 为 command 时，到点通过系统 shell 执行 content 命令。\n' +
+        'action 为 session 时，到点向 sessionId 指定的会话投递 content 消息并唤醒 Agent（sessionId 不填默认在创建任务的会话中执行，即"设置定时任务的会话"；可用 sessionId 指定其他会话）；action 为 command 时，到点通过系统 shell 执行 content 命令。\n' +
         '用户用自然语言描述时间时，请先换算成具体时间值再调用；换算时优先使用用户明确给出的日期/时刻，时区默认与服务器本地一致，可用 timeZone 参数指定（IANA 名称，如 "Asia/Shanghai"）。',
       parameters: {
         name: { type: 'string', required: true, description: '任务名称（简短，如"早上提醒写日报"）' },
@@ -102,7 +102,7 @@ export function registerTaskTools(ctx, store, scheduler) {
         endDate: { type: 'string', description: '可选，结束日期 "YYYY-MM-DD"（含当天，到达后自动停用）' },
         timeZone: { type: 'string', description: '可选，IANA 时区名（默认服务器本地时区），用于解释无偏移的时间' },
         action: { type: 'string', required: true, description: '动作：session（发消息到会话）/command（执行命令）' },
-        sessionId: { type: 'string', description: 'session 动作的目标会话 id（不填默认当前会话）' },
+        sessionId: { type: 'string', description: 'session 动作的目标会话 id（不填默认在创建任务的会话中执行）' },
         content: { type: 'string', required: true, description: '消息内容或要执行的命令' },
       },
       output: {
@@ -124,6 +124,8 @@ export function registerTaskTools(ctx, store, scheduler) {
           enabled: true,
           startDate: args.startDate ?? null,
           endDate: args.endDate ?? null,
+          // 记录创建任务所在的会话（"设置定时任务的会话"），执行时作为默认目标
+          createdSessionId: exec.agent?.session?.id ?? undefined,
         };
         if (mode === 'once') {
           input.at = parseAtInput(args.at, input.timeZone);
