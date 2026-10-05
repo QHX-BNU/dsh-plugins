@@ -191,7 +191,7 @@ import { hasPriorUserMessage } from '../lib/context.js';
 // 模拟 session.log 事件（'user/message' 事件的 data 就是消息本体）
 const log = (...events) => events.map((e) => ({ type: e.type, data: e.data, seq: 0 }));
 const um = (id) => ({ id, role: 'user', source: { kind: 'user' } });
-const cm = (id) => ({ id, role: 'user', source: { kind: 'memory-admin', plugin: 'dsh-memory-admin' } });
+const cm = (id) => ({ id, role: 'user', source: { kind: 'plugin', plugin: 'dsh-memory-admin' } });
 // 全新会话：日志里只有本次被 claim 的消息 → 是对话开始
 assert(hasPriorUserMessage(log({ type: 'user/message', data: um('m1') }), new Set(['m1'])) === false, '全新会话判为对话开始');
 // 已聊过的会话：日志里有更早的用户消息 → 不是对话开始
@@ -199,7 +199,7 @@ assert(
   hasPriorUserMessage(log({ type: 'user/message', data: um('m0') }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === true,
   '历史含更早用户消息判为非开始',
 );
-// 注入过的 context 块（kind=memory-admin）不算用户消息
+// 注入过的 context 块（kind=plugin）不算用户消息
 assert(
   hasPriorUserMessage(log({ type: 'user/message', data: um('m0') }, { type: 'user/message', data: cm('ctx1') }, { type: 'user/message', data: um('m1') }), new Set(['m1'])) === true,
   '历史中的注入块不影响判定（仍非开始）',

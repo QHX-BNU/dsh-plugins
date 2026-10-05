@@ -10,7 +10,14 @@
  *      追加进会话日志，Web UI 会把它渲染为上下文块（context chip），
  *      对话里直接看到"本次对话加载了哪些记忆模块"。
  *    会话记忆仅作留档，不注入 context；之后的用户消息也不再注入。
- * 3. 每次注入都写入 memory_loads 表（审计 + memory_loaded 查询）。
+ * 3. 注入消息的来源（source.kind）必须使用 DSH 认可的「生产者形态」，否则会破坏
+ *    会话迁移（详见 memoryMessageSource）：
+ *    · 会话格式 v4+：{ kind: 'plugin:dsh-memory-admin' }（V4 拒绝裸 'plugin'）；
+ *    · 会话格式 v0–v3：{ kind: 'plugin', plugin: 'dsh-memory-admin' }（历史迁移的来源
+ *      白名单只认 'plugin' 形态，V3→V4 会自动重写为 'plugin:dsh-memory-admin'）。
+ *    ⚠️ 早期版本写入的裸 { kind: 'memory-admin' } 不在 v2→v3 迁移白名单中，会导致含
+ *    记忆注入的旧会话整份迁移失败（SessionFormatUnsupportedMigrationError）。
+ * 4. 每次注入都写入 memory_loads 表（审计 + memory_loaded 查询）。
  */
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { CATEGORY_LABELS, SCOPE_LABELS } from './store.js';
@@ -25,6 +32,29 @@ export function extractText(blocks) {
     }
   }
   return parts.join('\n').trim();
+}
+
+/**
+ * 解析当前会话的存储格式版本（Session.header.version）。
+ * v4+ 使用「生产者 kind」形态；v0–v3 使用 'plugin' + plugin 字段形态；
+ * header 不可用时返回 undefined（按历史形态处理，保证旧版本 DSH 下写出的日志可迁移）。
+ */
+export function sessionFormatVersion(session) {
+  const version = Number(session?.header?.version);
+  return Number.isSafeInteger(version) && version >= 0 ? version : undefined;
+}
+
+/**
+ * 生成记忆注入消息的 source，保证写入的日志在任何 DSH 版本下都能通过格式迁移：
+ * · v4+：{ kind: 'plugin:dsh-memory-admin' } —— V4 只接受「非空且不是 'plugin'」的
+ *   producer kind；该形态正是 V3→V4 迁移对插件来源的标准重写结果；
+ * · v0–v3：{ kind: 'plugin', plugin: 'dsh-memory-admin' } —— v2→v3 迁移的来源白名单
+ *   只接受 'plugin'，写其它自定义 kind 会使整份旧会话迁移被拒绝。
+ */
+export function memoryMessageSource(session) {
+  return (sessionFormatVersion(session) ?? 0) >= 4
+    ? { kind: 'plugin:dsh-memory-admin' }
+    : { kind: 'plugin', plugin: 'dsh-memory-admin' };
 }
 
 /** 渲染注入的"记忆加载"上下文消息文本。 */
@@ -146,7 +176,7 @@ export function installMemoryHooks(ctx, store, config) {
       const text = renderMemoryContext(loaded, config);
       const contextMessage = createUserMessage({
         content: [{ type: 'text', text }],
-        source: { kind: 'memory-admin', plugin: 'dsh-memory-admin' },
+        source: memoryMessageSource(session),
       });
 
       // 插到被 claim 消息之后（与 agent-instructions 相同的插入策略）

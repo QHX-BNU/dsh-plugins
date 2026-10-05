@@ -97,3 +97,35 @@
 ```bash
 node test/smoke.mjs    # 存储层 + 召回算法烟雾测试
 ```
+
+## 会话迁移兼容性（2026-10 修复）
+
+注入消息的 `source.kind` 必须使用 DSH 认可的生产者形态，否则含记忆注入的旧会话会**整份无法迁移**到新版本：
+
+| 会话格式 | 注入来源形态 |
+|---|---|
+| v4+（DSH 0.2+） | `{ kind: 'plugin:dsh-memory-admin' }` |
+| v0–v3（DSH 0.1.x） | `{ kind: 'plugin', plugin: 'dsh-memory-admin' }` |
+
+插件读取 `session.header.version` 自动选择形态。不要使用裸 `{ kind: 'memory-admin' }`：
+它不在 `dsh-session-format-v2-to-v3` 的来源白名单中，旧会话迁移会报
+`SessionFormatUnsupportedMigrationError: cannot safely transform unclassified message source`。
+
+### 修复历史会话
+
+`tools/fix-legacy-sessions.mjs` 修复旧日志里阻断迁移的数据（默认 dry-run）：
+
+- `source.kind: 'memory-admin'` 改为 `'plugin'`（v0–v3 日志）
+- `subagent/descriptor.data.version: 2` 提升为 `3`（v0 迁移边要求 version 3）
+- turn 编号空洞整体前移重编号（v3 到 v4 校验要求 turn 连续）
+
+```powershell
+$env:ELECTRON_RUN_AS_NODE="1"
+$dsh = "C:\Users\<你>\AppData\Local\Programs\DeepSeek Harness\DeepSeek Harness.exe"
+& $dsh tools\fix-legacy-sessions.mjs                    # 试运行，只报告
+& $dsh tools\fix-legacy-sessions.mjs --apply            # 写入（自动备份到 ~/.dsh/session-backups-<时间戳>）
+```
+
+写盘前会用 DSH 自带迁移库校验每个文件能完整恢复为 v4；校验失败的文件会跳过。
+DSH 在下次打开旧会话时会自动发布 `session.v4.jsonl.zstd`。
+
