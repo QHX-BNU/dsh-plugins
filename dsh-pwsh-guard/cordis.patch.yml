@@ -1,0 +1,31 @@
+# dsh-pwsh-guard bundle patch：把插件行挂进 profile 名册。
+#
+# 安装（开发态本地 link）：
+#   dsh plugin --profile desktop add link:D:/Agent/DSH/plugins/dsh-pwsh-guard
+# 安装（发布后）：
+#   dsh plugin --profile <name> add dsh-pwsh-guard
+#
+# 用户 patch 层可覆盖下面任意字段（会热应用）。
+- insert:
+    - id: dsh-pwsh-guard
+      name: dsh-pwsh-guard
+      config:
+        # deny = 命中阻断级规则时拒绝执行并返回修复建议；warn = 只记日志放行；off = 关闭闸门
+        mode: deny
+        # zh | en
+        lang: zh
+        # pwsh_run 默认自动修复 bash 风格写法
+        autoFix: true
+        # auto | pwsh | powershell（auto 时优先 pwsh，回退 powershell.exe）
+        shell: auto
+        # 深度检查（AST 语法解析 + 可选 PSScriptAnalyzer）：
+        #   off = 关闭；run = 只在 pwsh_run / pwsh_check 里做（默认）；all = 连 pwsh 闸门也做
+        deepCheck: run
+        # builtin = 只用内置 AST；psscriptanalyzer = 额外跑 PSScriptAnalyzer（未安装则自动跳过）
+        analyzer: psscriptanalyzer
+        # 内置 pwsh 输出疑似乱码时追加提示
+        outputGuard: true
+        # 工具接管：replace = 在每个 agent 的可见工具里隐藏内置 pwsh，只能用 pwsh_run / run_argv；off = 不接管
+        takeover: replace
+        # 需要临时关闭某条规则时列出，例如 ["R10", "R17"]
+        disableRules: []

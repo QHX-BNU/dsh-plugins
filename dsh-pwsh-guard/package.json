@@ -1,0 +1,54 @@
+{
+  "name": "dsh-pwsh-guard",
+  "version": "0.6.0",
+  "description": "融合版 DSH PowerShell 守门插件：pwsh 调用前的静态检查闸门 + bash->PowerShell 自动修复 + 结构化执行工具（pwsh_run / pwsh_check / run_argv）+ skill 教学。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./rules": "./lib/rules.js",
+    "./fixer": "./lib/fixer.js",
+    "./exec": "./lib/exec.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./SKILL.md": "./SKILL.md",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "test",
+    "SKILL.md",
+    "cordis.patch.yml",
+    "README.md",
+    "NOTICE",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "scripts": {
+    "test": "node --test test/rules.test.mjs test/fixer.test.mjs test/plugin.test.mjs test/ast.test.mjs test/background.test.mjs test/danger.test.mjs test/audit.test.mjs",
+    "check": "node --check lib/rules.js && node --check lib/fixer.js && node --check lib/exec.js && node --check lib/index.js"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "powershell",
+    "pwsh",
+    "windows",
+    "lint",
+    "guard",
+    "skill"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QHX-BNU/dsh-plugins.git"
+  },
+  "homepage": "https://github.com/QHX-BNU/dsh-plugins/tree/main/dsh-pwsh-guard"
+}

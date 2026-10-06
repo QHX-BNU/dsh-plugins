@@ -17,6 +17,7 @@
 | [dsh-wallpaper-sync](./dsh-wallpaper-sync) | 0.1.0 | 背景同步：读取 Wallpaper Engine 当前壁纸作为 DSH 全界面背景，桌面切换壁纸时自动跟随 |
 | [dsh-drawio](./dsh-drawio) | 0.1.0 | drawio 画图：agent 画图工具（drawio_validate / drawio_render / drawio_template）+ 侧边栏「画板」——mxfile XML 实时渲染为 SVG、导出 PNG、写入工作区（纯 TS 零依赖翻译器） |
 | [dsh-show-image](./dsh-show-image) | 0.1.0 | 界面内嵌图片：模型调用 `show_image` 工具把本地图片以内联卡片显示在 WebUI 对话里（点击看灯箱大图）；图片只走展示通道、永不进模型历史（纯文本/多模态模型均安全，主题适配） |
+| [dsh-pwsh-guard](./dsh-pwsh-guard) | 0.6.0 | PowerShell 守门：pwsh 调用前的静态检查闸门（22 条坑位，8 条阻断）+ bash→PowerShell 自动修复 + AST/PSScriptAnalyzer 深度检查 + 免转义执行（pwsh_run / run_argv）+ 破坏性操作闸（dangerous 确认）+ 审计日志（pwsh_audit）+ 工具接管（run_in_background 模式见 README） |
 
 ## 安装
 

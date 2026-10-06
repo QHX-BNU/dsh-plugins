@@ -1,0 +1,15 @@
+# 致谢与来源说明
+
+dsh-pwsh-guard 的规则表、修复策略与执行形态融合自以下公开项目（思路借鉴、代码重写；未整体复制实现）：
+
+| 项目 | 许可 | 借鉴内容 |
+| --- | --- | --- |
+| chaggle/dsh-powershell-check | MIT | R1–R19 坑位表（源自《PowerShell 实战踩坑大全》）、tools/pre-execute 闸门形态、skill provider 注册方式 |
+| GuTianshuo/powershell-fix | MIT | bash -> PowerShell 修复规则集合（行卫生、环境变量、重定向、命令 shim）与幂等约束 |
+| fengbai2233/dsh-pwsh-quoting-guard | MIT | 正文单 argv 传参、$DSH_ARGS 数组字面量绑定、沙箱 confine 与输出词表（[stderr] / truncated / [exit code]） |
+| sryimnoob123/dsh-tool-pwsh-safe | NOASSERTION（npm 声明 MIT） | 超长脚本 base64 -EncodedCommand 兜底思路（仅思路） |
+| PerryLink/dsh-permission-rules | - | tools/pre-execute 决策返回形态的社区实践参考 |
+
+本插件新增的规则（R20–R22）来自本机实测：Windows PowerShell 5.1 + ConstrainedLanguage 只读沙箱 + 原生程序吞引号的组合环境。
+
+如果原项目作者希望调整署名方式，请提 issue。
