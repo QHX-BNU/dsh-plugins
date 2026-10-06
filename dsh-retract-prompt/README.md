@@ -13,6 +13,19 @@
 同时保留原版的 **「复制」** 按钮与消息时间（悬停显示），操作区位于每条
 用户消息气泡下方、与复制按钮同一行。
 
+## 版本适配（DSH 2.0.14+）
+
+- DSH 2.0.14 起会话格式升级为 **v4**：存储文件是 `session.v4.jsonl.zstd`，由
+  「header zstd 帧 + 每个追加批次一个 zstd 帧」组成；持久化服务改为句柄化
+  （`ctx.sessionPersistence.tracker.writers`）。插件 v0.2.0 已按新结构重写
+  撤回路径：截断后重新物化文件，并同步写句柄游标 `state.cursor`、读水位
+  `observedLength`、清空待写缓冲，同时重建内存 surface 折叠状态与会话投影。
+- 旧版 DSH（<= 0.2.x：扁平 JSONL + `persistence.readRaw/locate/coordinator`）
+  仍走兼容分支，无需降级。
+- 客户端在 2.0.14 下不变：仍通过 `ctx.conversation.input.shell()` 放回输入框，
+  用 `binding.session.resync()` 重载窗口；新增优先走 typed 的
+  `binding.session.cancel()` 停止运行。
+
 ## 工作原理与限制
 
 - DSH 的会话事件日志是 append-only，官方**没有删除消息的 API**。本插件在

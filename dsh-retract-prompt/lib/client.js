@@ -182,7 +182,7 @@ window.__ModuleLoader__.load({
      * （node / loadImage）+ 本插件 inject（scopedConversation / inputShell）。
      */
     function RetractUserMessageView(props) {
-      const { node, loadImage, sessionId, useSessions, scopedConversation, inputShell, resyncSession } = props;
+      const { node, loadImage, sessionId, useSessions, scopedConversation, inputShell, resyncSession, cancelSession, refreshSession } = props;
       const data = node && node.data ? node.data : {};
       const { text, images, rest } = contentParts(data.content);
       const running = useSessions((s) => !!(s && s.byId && s.byId[sessionId] && s.byId[sessionId].running));
@@ -261,8 +261,7 @@ window.__ModuleLoader__.load({
           // 1) 正在运行且配置允许 → 先停止
           if (running) {
             try {
-              const conv = scopedConversation(sessionId);
-              if (conv) await conv.cancel();
+              await cancelSession(sessionId);
             } catch (err) {
               // 停止失败不阻塞撤回（服务端会按 open turn 自动前移边界）
               showToast("停止运行失败：" + (err && err.message ? err.message : String(err)) + "，继续撤回…", "err");
@@ -292,12 +291,14 @@ window.__ModuleLoader__.load({
           // 4) 重载会话窗口（重新拉取历史，被撤回的消息消失）
           const resync = resyncSession(sessionId);
           if (resync && typeof resync.then === "function") await resync;
+          // 刷新会话投影（模型选择 / plan / goal 等）；resync 不覆盖这部分
+          await refreshSession(sessionId);
         } catch (err) {
           showToast(err && err.message ? err.message : String(err), "err");
         } finally {
           if (mountedRef.current) setBusy(false);
         }
-      }, [busy, running, text, data.seq, sessionId, scopedConversation, inputShell, resyncSession]);
+      }, [busy, running, text, data.seq, sessionId, scopedConversation, inputShell, resyncSession, cancelSession, refreshSession]);
 
       const showBubble = text !== "" || rest.length > 0;
 
@@ -402,6 +403,42 @@ window.__ModuleLoader__.load({
         }
       };
 
+      /** 停止会话运行：优先 typed 路径 binding.session.cancel()，回退旧版 scopedConversation。 */
+      const cancelSession = async (sessionId) => {
+        let typedError = null;
+        try {
+          const binding = ctx.sessions.binding(sessionId);
+          const cancel = binding && binding.session && binding.session.cancel;
+          if (typeof cancel === "function") {
+            await cancel.call(binding.session);
+            return;
+          }
+        } catch (err) {
+          typedError = err;
+        }
+        try {
+          const conv = scopedConversation(sessionId);
+          if (conv && typeof conv.cancel === "function") {
+            await conv.cancel();
+            return;
+          }
+        } catch (err) {
+          if (!typedError) typedError = err;
+        }
+        if (typedError) throw typedError;
+      };
+
+      /** 刷新会话投影（sessionProjections 的 wire 视图）。 */
+      const refreshSession = async (sessionId) => {
+        try {
+          if (ctx.sessions && typeof ctx.sessions.refreshProjections === "function") {
+            await ctx.sessions.refreshProjections(sessionId);
+          }
+        } catch {
+          /* 投影刷新失败不影响撤回 */
+        }
+      };
+
       // 接管 user / steering 消息渲染（priority 最低；渲染出错自动回退原版）
       for (const key of ["user", "steering"]) {
         ctx.slots.inject("conversation.chat.node", () => ctx.slots.register({
@@ -412,6 +449,8 @@ window.__ModuleLoader__.load({
             scopedConversation,
             inputShell,
             resyncSession,
+            cancelSession,
+            refreshSession,
           }),
         }, RetractUserMessageView));
       }
