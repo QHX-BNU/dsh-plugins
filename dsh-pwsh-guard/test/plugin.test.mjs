@@ -5,6 +5,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// 测试默认不写真实审计日志（审计用例内部会临时解除）
+process.env.DSH_GUARD_NO_AUDIT = "1";
+
 /** 构造一个最小可用的假 ctx（不依赖真实 harness）。 */
 function makeHarness(overrides = {}) {
   const state = { tools: [], gate: undefined, post: undefined, providers: [], warnings: [], infos: [], spawns: [], events: [], effects: [] };
@@ -467,6 +470,8 @@ test("pwsh_check：报告破坏性操作", async () => {
 test("审计：闸门拒绝 / 自动修复 / 危险拦截都会落盘，pwsh_audit 可读", async () => {
   const home = mkdtempSync(join(tmpdir(), "guard-audit-"));
   const prev = process.env.DSH_HOME;
+  const prevNoAudit = process.env.DSH_GUARD_NO_AUDIT;
+  delete process.env.DSH_GUARD_NO_AUDIT;
   process.env.DSH_HOME = home;
   try {
     const { ctx, state } = makeHarness();
@@ -494,6 +499,8 @@ test("审计：闸门拒绝 / 自动修复 / 危险拦截都会落盘，pwsh_aud
   } finally {
     if (prev === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = prev;
+    if (prevNoAudit === undefined) delete process.env.DSH_GUARD_NO_AUDIT;
+    else process.env.DSH_GUARD_NO_AUDIT = prevNoAudit;
     rmSync(home, { recursive: true, force: true });
   }
 });

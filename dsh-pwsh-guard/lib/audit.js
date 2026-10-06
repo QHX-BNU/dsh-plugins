@@ -25,8 +25,9 @@ export function clipCommand(text) {
   return value.length > MAX_COMMAND ? value.slice(0, MAX_COMMAND) + "..." : value;
 }
 
-/** 追加一条审计记录（失败静默）。 */
+/** 追加一条审计记录（失败静默；DSH_GUARD_NO_AUDIT=1 时跳过，供测试隔离）。 */
 export function appendAudit(entry) {
+  if (process.env.DSH_GUARD_NO_AUDIT === "1") return;
   try {
     const file = auditFilePath();
     mkdirSync(dirname(file), { recursive: true });
